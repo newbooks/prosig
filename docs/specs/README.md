@@ -2,6 +2,12 @@
 
 Implementation specs live here. Keep each spec focused on one subsystem or workflow.
 
+Current specs:
+
+- `cli.md`: Typer-based command and subcommand interface.
+- `motif_discovery.md`: protein signature discovery workflow.
+- `function_prediction.md`: function prediction from signatures.
+
 Recommended structure:
 
 - Problem and goals
