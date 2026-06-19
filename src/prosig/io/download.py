@@ -68,7 +68,10 @@ def download_file(
     last_progress_at = clock()
 
     try:
-        metadata = inspect_download(url, timeout=timeout)
+        try:
+            metadata = inspect_download(url, timeout=timeout)
+        except DownloadError:
+            metadata = DownloadMetadata(content_length=None, accepts_ranges=False)
         threaded = should_use_threaded_download(metadata, threads=threads)
         if threaded:
             bytes_written = _download_threaded(

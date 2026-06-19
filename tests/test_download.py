@@ -119,6 +119,29 @@ def test_download_file_raises_on_http_error(
     assert not destination.exists()
 
 
+def test_download_file_falls_back_to_get_when_head_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "artifact.tsv"
+    methods = []
+
+    def fake_urlopen(request: object, timeout: float) -> FakeResponse:
+        methods.append(request.get_method())
+        if request.get_method() == "HEAD":
+            raise OSError("HEAD blocked")
+        return FakeResponse([b"content"])
+
+    monkeypatch.setattr("prosig.io.download.urlopen", fake_urlopen)
+
+    result = download_file("https://example.test/artifact.tsv", destination)
+
+    assert methods == ["HEAD", "GET"]
+    assert destination.read_text(encoding="utf-8") == "content"
+    assert result.bytes_written == 7
+    assert result.content_length is None
+    assert result.threaded is False
+
+
 def test_download_file_rejects_incomplete_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
