@@ -1,6 +1,10 @@
-from importlib.metadata import PackageNotFoundError, version as package_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 
 import typer
+
+from prosig.cli.fetch import fetch
+from prosig.cli.logging import configure_logging, log_level_names
 
 APP_NAME = "prosig"
 DEVELOPER_NAME = "Junjun Mao"
@@ -21,8 +25,19 @@ def get_version() -> str:
 
 
 @app.callback()
-def cli() -> None:
+def cli(
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        case_sensitive=False,
+        help="Set the log level.",
+    ),
+) -> None:
     """Protein signature discovery and function inference."""
+    if log_level.upper() not in log_level_names():
+        valid_levels = ", ".join(log_level_names())
+        raise typer.BadParameter(f"choose one of: {valid_levels}")
+    configure_logging(log_level)
 
 
 @app.command()
@@ -30,6 +45,9 @@ def version() -> None:
     """Show the installed ProSig version and developer information."""
     typer.echo(f"ProSig version: {get_version()}")
     typer.echo(f"Developer: {DEVELOPER_NAME} <{DEVELOPER_EMAIL}>")
+
+
+app.command()(fetch)
 
 
 def main() -> None:
