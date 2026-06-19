@@ -202,6 +202,43 @@ def test_download_file_falls_back_to_get_when_range_download_fails(
     assert result.threaded is False
 
 
+def test_download_file_falls_back_to_get_when_range_request_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "artifact.tsv"
+    calls = []
+
+    def fake_urlopen(request: object, timeout: float) -> FakeResponse:
+        method = request.get_method()
+        range_header = request.get_header("Range")
+        calls.append((method, range_header))
+        if method == "HEAD":
+            return FakeResponse(
+                [],
+                headers={"Content-Length": "7", "Accept-Ranges": "bytes"},
+            )
+        if range_header is not None:
+            raise OSError("range connection dropped")
+        return FakeResponse([b"content"], headers={"Content-Length": "7"})
+
+    monkeypatch.setattr("prosig.io.download.MIN_THREADED_BYTES", 3)
+    monkeypatch.setattr("prosig.io.download.urlopen", fake_urlopen)
+
+    result = download_file(
+        "https://example.test/artifact.tsv",
+        destination,
+        threads=2,
+    )
+
+    assert calls[0] == ("HEAD", None)
+    assert calls[-1] == ("GET", None)
+    assert any(call[1] is not None for call in calls[1:-1])
+    assert destination.read_text(encoding="utf-8") == "content"
+    assert result.bytes_written == 7
+    assert result.content_length == 7
+    assert result.threaded is False
+
+
 def test_download_file_rejects_incomplete_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

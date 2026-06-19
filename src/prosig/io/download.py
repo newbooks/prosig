@@ -98,7 +98,7 @@ def download_file(
                     ),
                     timeout=timeout,
                 )
-            except DownloadError:
+            except (OSError, URLError, DownloadError):
                 part_path.unlink(missing_ok=True)
                 threaded = False
                 single_result = _download_single_threaded(
