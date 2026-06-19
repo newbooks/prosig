@@ -298,6 +298,12 @@ def _download_range(
                 bytes_written += len(chunk)
                 if progress_increment is not None:
                     progress_increment(len(chunk))
+    expected_bytes = end - start + 1
+    if bytes_written != expected_bytes:
+        raise DownloadError(
+            f"range downloaded {bytes_written} bytes but expected "
+            f"{expected_bytes}: {url}"
+        )
     return bytes_written
 
 
