@@ -34,6 +34,12 @@ class DownloadMetadata:
     accepts_ranges: bool
 
 
+@dataclass(frozen=True)
+class SingleThreadDownload:
+    bytes_written: int
+    content_length: int | None
+
+
 def download_file(
     url: str,
     destination: str | Path,
@@ -65,6 +71,7 @@ def download_file(
     part_path.unlink(missing_ok=True)
 
     bytes_written = 0
+    content_length = None
     last_progress_at = clock()
 
     try:
@@ -72,28 +79,50 @@ def download_file(
             metadata = inspect_download(url, timeout=timeout)
         except DownloadError:
             metadata = DownloadMetadata(content_length=None, accepts_ranges=False)
+        content_length = metadata.content_length
         threaded = should_use_threaded_download(metadata, threads=threads)
         if threaded:
-            bytes_written = _download_threaded(
-                url,
-                part_path,
-                content_length=metadata.content_length,
-                chunk_size=chunk_size,
-                threads=threads,
-                progress=_throttled_progress(
-                    progress,
-                    metadata.content_length,
-                    progress_interval_seconds,
-                    clock,
-                    last_progress_at,
-                ),
-                timeout=timeout,
-            )
+            try:
+                bytes_written = _download_threaded(
+                    url,
+                    part_path,
+                    content_length=metadata.content_length,
+                    chunk_size=chunk_size,
+                    threads=threads,
+                    progress=_throttled_progress(
+                        progress,
+                        metadata.content_length,
+                        progress_interval_seconds,
+                        clock,
+                        last_progress_at,
+                    ),
+                    timeout=timeout,
+                )
+            except DownloadError:
+                part_path.unlink(missing_ok=True)
+                threaded = False
+                single_result = _download_single_threaded(
+                    url,
+                    part_path,
+                    chunk_size=chunk_size,
+                    expected_content_length=metadata.content_length,
+                    progress=_throttled_progress(
+                        progress,
+                        metadata.content_length,
+                        progress_interval_seconds,
+                        clock,
+                        last_progress_at,
+                    ),
+                    timeout=timeout,
+                )
+                bytes_written = single_result.bytes_written
+                content_length = single_result.content_length
         else:
-            bytes_written = _download_single_threaded(
+            single_result = _download_single_threaded(
                 url,
                 part_path,
                 chunk_size=chunk_size,
+                expected_content_length=metadata.content_length,
                 progress=_throttled_progress(
                     progress,
                     metadata.content_length,
@@ -103,13 +132,12 @@ def download_file(
                 ),
                 timeout=timeout,
             )
-        if (
-            metadata.content_length is not None
-            and bytes_written != metadata.content_length
-        ):
+            bytes_written = single_result.bytes_written
+            content_length = single_result.content_length
+        if content_length is not None and bytes_written != content_length:
             raise DownloadError(
                 f"downloaded {bytes_written} bytes but expected "
-                f"{metadata.content_length}: {url}"
+                f"{content_length}: {url}"
             )
         part_path.replace(destination_path)
     except (OSError, URLError, DownloadError) as error:
@@ -123,7 +151,7 @@ def download_file(
         url=url,
         destination=destination_path,
         bytes_written=bytes_written,
-        content_length=metadata.content_length,
+        content_length=content_length,
         threaded=threaded,
     )
 
@@ -170,15 +198,19 @@ def _download_single_threaded(
     part_path: Path,
     *,
     chunk_size: int,
+    expected_content_length: int | None,
     progress: ProgressCallback | None,
     timeout: float,
-) -> int:
+) -> SingleThreadDownload:
     request = Request(url, headers={"User-Agent": "prosig"})
     bytes_written = 0
+    content_length = expected_content_length
     with urlopen(request, timeout=timeout) as response:
         status = getattr(response, "status", None)
         if status is not None and status >= 400:
             raise DownloadError(f"download failed with HTTP status {status}: {url}")
+        if content_length is None:
+            content_length = _metadata_from_headers(response.headers).content_length
 
         with part_path.open("wb") as output:
             while True:
@@ -188,8 +220,11 @@ def _download_single_threaded(
                 output.write(chunk)
                 bytes_written += len(chunk)
                 if progress is not None:
-                    progress(bytes_written, None)
-    return bytes_written
+                    progress(bytes_written, content_length)
+    return SingleThreadDownload(
+        bytes_written=bytes_written,
+        content_length=content_length,
+    )
 
 
 def _download_threaded(
@@ -308,10 +343,11 @@ def _throttled_progress(
 
     def report(bytes_written: int, total: int | None) -> None:
         now = clock()
-        is_complete = content_length is not None and bytes_written >= content_length
+        effective_total = content_length if content_length is not None else total
+        is_complete = effective_total is not None and bytes_written >= effective_total
         if now - state["last_progress_at"] < interval_seconds and not is_complete:
             return
-        progress(bytes_written, content_length if content_length is not None else total)
+        progress(bytes_written, effective_total)
         state["last_progress_at"] = now
 
     return report

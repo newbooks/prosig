@@ -142,6 +142,66 @@ def test_download_file_falls_back_to_get_when_head_fails(
     assert result.threaded is False
 
 
+def test_download_file_rejects_truncated_get_when_head_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "artifact.tsv"
+    destination.write_text("old", encoding="utf-8")
+
+    def fake_urlopen(request: object, timeout: float) -> FakeResponse:
+        if request.get_method() == "HEAD":
+            raise OSError("HEAD blocked")
+        return FakeResponse([b"short"], headers={"Content-Length": "10"})
+
+    monkeypatch.setattr("prosig.io.download.urlopen", fake_urlopen)
+
+    with pytest.raises(DownloadError, match="expected 10"):
+        download_file("https://example.test/artifact.tsv", destination)
+
+    assert destination.read_text(encoding="utf-8") == "old"
+    assert not destination.with_name("artifact.tsv.part").exists()
+
+
+def test_download_file_falls_back_to_get_when_range_download_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "artifact.tsv"
+    calls = []
+
+    def fake_urlopen(request: object, timeout: float) -> FakeResponse:
+        method = request.get_method()
+        range_header = request.get_header("Range")
+        calls.append((method, range_header))
+        if method == "HEAD":
+            return FakeResponse(
+                [],
+                headers={"Content-Length": "7", "Accept-Ranges": "bytes"},
+            )
+        if range_header is not None:
+            return FakeResponse([], status=200)
+        return FakeResponse([b"content"], headers={"Content-Length": "7"})
+
+    monkeypatch.setattr("prosig.io.download.MIN_THREADED_BYTES", 3)
+    monkeypatch.setattr("prosig.io.download.urlopen", fake_urlopen)
+
+    result = download_file(
+        "https://example.test/artifact.tsv",
+        destination,
+        threads=2,
+    )
+
+    assert calls[0] == ("HEAD", None)
+    assert calls[-1] == ("GET", None)
+    assert sorted(calls[1:-1]) == [
+        ("GET", "bytes=0-3"),
+        ("GET", "bytes=4-6"),
+    ]
+    assert destination.read_text(encoding="utf-8") == "content"
+    assert result.bytes_written == 7
+    assert result.content_length == 7
+    assert result.threaded is False
+
+
 def test_download_file_rejects_incomplete_download(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
