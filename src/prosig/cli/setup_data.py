@@ -9,27 +9,19 @@ from prosig.io.download import DEFAULT_THREADS, DownloadResult, download_file
 
 
 @dataclass(frozen=True)
-class FetchSource:
+class SetupDataSource:
     description: str
     url: str
     destination: str
 
 
-FETCH_SOURCES = [
-    FetchSource(
+SETUP_DATA_SOURCES = [
+    SetupDataSource(
         description="GO Graph",
         url="https://current.geneontology.org/ontology/go-basic.obo",
-        destination="go.obo",
+        destination="go-basic.obo",
     ),
-    FetchSource(
-        description="Swiss-Prot fasta",
-        url=(
-            "https://ftp.uniprot.org/pub/databases/uniprot/current_release/"
-            "knowledgebase/complete/uniprot_sprot.fasta.gz"
-        ),
-        destination="uniprot_sprot.fasta.gz",
-    ),
-    FetchSource(
+    SetupDataSource(
         description="Swiss-Prot GO",
         url=(
             "https://ftp.uniprot.org/pub/databases/uniprot/current_release/"
@@ -37,7 +29,7 @@ FETCH_SOURCES = [
         ),
         destination="uniprot_sprot.dat.gz",
     ),
-    FetchSource(
+    SetupDataSource(
         description="PROSITE",
         url="https://ftp.expasy.org/databases/prosite/prosite.dat",
         destination="prosite.dat",
@@ -47,7 +39,7 @@ FETCH_SOURCES = [
 Downloader = Callable[..., DownloadResult]
 
 
-def fetch(
+def setup_data(
     force: bool = typer.Option(
         False,
         "--force",
@@ -66,15 +58,15 @@ def fetch(
     ),
 ) -> None:
     """Download external files required by ProSig workflows."""
-    fetch_sources(force=force, dry_run=dry_run, threads=threads)
+    setup_data_sources(force=force, dry_run=dry_run, threads=threads)
 
 
-def fetch_sources(
+def setup_data_sources(
     *,
     force: bool,
     dry_run: bool,
     threads: int,
-    sources: list[FetchSource] | None = None,
+    sources: list[SetupDataSource] | None = None,
     downloader: Downloader = download_file,
 ) -> list[DownloadResult]:
     if threads <= 0:
@@ -82,7 +74,7 @@ def fetch_sources(
 
     logger = get_logger()
     results = []
-    for source in sources or FETCH_SOURCES:
+    for source in sources or SETUP_DATA_SOURCES:
         destination = Path.cwd() / source.destination
         if destination.exists() and not force:
             logger.info(

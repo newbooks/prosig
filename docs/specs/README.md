@@ -5,7 +5,8 @@ Implementation specs live here. Keep each spec focused on one subsystem or workf
 Current specs:
 
 - `cli.md`: Typer-based command and subcommand interface.
-- `fetch.md`: external resource retrieval command.
+- `setup_data.md`: `setup-data` external resource retrieval command.
+- `go_pkl.md`: minimal GO Molecular Function graph and IC artifact.
 - `motif_discovery.md`: protein signature discovery workflow.
 - `function_prediction.md`: function prediction from signatures.
 

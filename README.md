@@ -2,6 +2,32 @@
 
 ProSig: Protein Signature Discovery and Function Inference
 
+## Command Plan
+
+ProSig will expose a small command set that separates setup workflows from
+routine analysis workflows:
+
+- `prosig setup-data`: download and cache external data for offline use.
+- `prosig build-library`: build the minimized GO graph, adjustable Leiden
+  function clusters, and customizable motif library.
+- `prosig discover`: discover discriminative motifs from grouped function
+  clusters and background sequences.
+- `prosig annotate`: scan sequence(s), report motif hits, and infer sequence
+  function from those motif hits as prediction evidence.
+
+`setup-data` and `build-library` are expected to be run less often than
+`discover` and `annotate`. Clustering is treated as part of library construction
+rather than a separate top-level command, because function clusters are a
+prerequisite for the motif library. Function prediction is treated as part of
+annotation, because predictions should be reported together with the motif scan
+hits that justify them.
+
+GO evidence-code filtering in `build-library` is intended to be used with the
+reviewed Swiss-Prot accession file `uniprot_sprot.dat.gz`. The excluded GO
+assignment evidence codes are maintained in `src/prosig/go/build.py`; applying
+the same exclusion rule to unreviewed annotation sources requires a separate
+review.
+
 ## Project Structure
 
 - `AGENT.md`: working instructions for coding agents.

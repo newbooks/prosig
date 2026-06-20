@@ -2,6 +2,24 @@
 
 This repository is ProSig, a project for protein sequence signature discovery and function prediction from discovered signatures.
 
+## Product Command Plan
+
+- Use `setup-data` for the one-time or occasional workflow that downloads and
+  caches external data for offline use.
+- Use `build-library` for building the minimized GO graph, Leiden-based
+  adjustable function clusters, and customizable motif library. Treat clustering
+  as part of this workflow unless a later decision record explicitly separates
+  it into its own user-facing command.
+- Use `discover` for motif discovery from grouped function clusters and
+  background sequences.
+- Use `annotate` for scanning sequence(s), reporting motif hits, and predicting
+  sequence function from those motif hits. Motif hits should remain visible as
+  the evidence or reasoning behind predictions.
+
+Avoid introducing top-level `cluster`, `scan`, or `predict` commands without a
+documented design decision, because the current plan folds clustering into
+`build-library` and folds scanning plus prediction into `annotate`.
+
 ## Branch Safety
 
 - Before editing files, check the current branch with `git branch --show-current`.

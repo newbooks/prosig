@@ -26,9 +26,9 @@ src/prosig/
   cli/
     __init__.py
     app.py
+    setup_data.py
     discover.py
-    predict.py
-    scan.py
+    annotate.py
   discovery/
   prediction/
   signatures/
@@ -56,9 +56,12 @@ dependencies = [
 
 Start with these top-level subcommands:
 
+- `prosig setup-data`: download and cache external data for offline use.
+- `prosig build-library`: build the minimized GO graph, adjustable function
+  clusters, and motif library.
 - `prosig discover`: discover sequence signatures from positive and background or negative sequence sets.
-- `prosig scan`: scan sequences against a signature library.
-- `prosig predict`: predict protein function from signature hits.
+- `prosig annotate`: scan sequences against a signature library and predict
+  protein function from signature hits.
 - `prosig signatures`: inspect, validate, convert, or summarize signature libraries.
 
 ## Design Rules
@@ -72,6 +75,6 @@ Start with these top-level subcommands:
 
 ## Open Questions
 
-- Which command should be implemented first: `discover`, `scan`, or `predict`?
+- Which command should be implemented first after `setup-data`?
 - What should be the first canonical signature library file format?
 - Should command output default to human-readable text, structured JSON/TSV, or both?
