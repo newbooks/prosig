@@ -3,8 +3,9 @@ from importlib.metadata import version as package_version
 
 import typer
 
-from prosig.cli.fetch import fetch
+from prosig.cli.build_library import build_library
 from prosig.cli.logging import configure_logging, log_level_names
+from prosig.cli.setup_data import setup_data
 
 APP_NAME = "prosig"
 DEVELOPER_NAME = "Junjun Mao"
@@ -47,7 +48,8 @@ def version() -> None:
     typer.echo(f"Developer: {DEVELOPER_NAME} <{DEVELOPER_EMAIL}>")
 
 
-app.command()(fetch)
+app.command(name="setup-data")(setup_data)
+app.command(name="build-library")(build_library)
 
 
 def main() -> None:

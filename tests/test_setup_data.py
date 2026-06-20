@@ -4,12 +4,17 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from prosig.cli.app import app
-from prosig.cli.fetch import FETCH_SOURCES, FetchSource, fetch_sources, format_progress
+from prosig.cli.setup_data import (
+    SETUP_DATA_SOURCES,
+    SetupDataSource,
+    format_progress,
+    setup_data_sources,
+)
 from prosig.io.download import DownloadResult
 
 
-def test_fetch_help_includes_threads_option() -> None:
-    result = CliRunner().invoke(app, ["fetch", "-h"])
+def test_setup_data_help_includes_threads_option() -> None:
+    result = CliRunner().invoke(app, ["setup-data", "-h"])
 
     assert result.exit_code == 0
     assert "--threads" in result.stdout
@@ -18,30 +23,37 @@ def test_fetch_help_includes_threads_option() -> None:
 
 
 def test_default_sources_include_prosite_dat() -> None:
-    assert FetchSource(
+    assert SetupDataSource(
         description="PROSITE",
         url="https://ftp.expasy.org/databases/prosite/prosite.dat",
         destination="prosite.dat",
-    ) in FETCH_SOURCES
+    ) in SETUP_DATA_SOURCES
 
 
-def test_fetch_skips_existing_destination_without_force(
+def test_default_sources_do_not_include_swissprot_fasta() -> None:
+    assert all(
+        source.destination != "uniprot_sprot.fasta.gz"
+        for source in SETUP_DATA_SOURCES
+    )
+
+
+def test_setup_data_skips_existing_destination_without_force(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO, logger="prosig")
-    (tmp_path / "go.obo").write_text("existing", encoding="utf-8")
+    (tmp_path / "go-basic.obo").write_text("existing", encoding="utf-8")
     downloads = []
 
-    fetch_sources(
+    setup_data_sources(
         force=False,
         dry_run=False,
         threads=16,
         sources=[
-            FetchSource(
+            SetupDataSource(
                 description="GO Graph",
-                url="https://example.test/go.obo",
-                destination="go.obo",
+                url="https://example.test/go-basic.obo",
+                destination="go-basic.obo",
             )
         ],
         downloader=lambda *args, **kwargs: downloads.append((args, kwargs)),
@@ -49,17 +61,17 @@ def test_fetch_skips_existing_destination_without_force(
 
     assert downloads == []
     assert caplog.messages == [
-        "Skipped go.obo: already exists. "
+        "Skipped go-basic.obo: already exists. "
         "Use --force to overwrite existing files."
     ]
 
 
-def test_fetch_force_downloads_existing_destination(
+def test_setup_data_force_downloads_existing_destination(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO, logger="prosig")
-    destination = tmp_path / "go.obo"
+    destination = tmp_path / "go-basic.obo"
     destination.write_text("existing", encoding="utf-8")
     calls = []
 
@@ -74,45 +86,47 @@ def test_fetch_force_downloads_existing_destination(
             threaded=False,
         )
 
-    fetch_sources(
+    setup_data_sources(
         force=True,
         dry_run=False,
         threads=4,
         sources=[
-            FetchSource(
+            SetupDataSource(
                 description="GO Graph",
-                url="https://example.test/go.obo",
-                destination="go.obo",
+                url="https://example.test/go-basic.obo",
+                destination="go-basic.obo",
             )
         ],
         downloader=fake_downloader,
     )
 
     assert destination.read_text(encoding="utf-8") == "new"
-    assert calls[0][0] == "https://example.test/go.obo"
+    assert calls[0][0] == "https://example.test/go-basic.obo"
     assert calls[0][1] == destination
     assert calls[0][2]["threads"] == 4
     assert "Download threads requested: 4" in caplog.messages
     assert (
-        "Downloaded go.obo: 3 bytes using single-threaded download"
+        "Downloaded go-basic.obo: 3 bytes using single-threaded download"
         in caplog.messages
     )
 
 
-def test_fetch_dry_run_does_not_download(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_setup_data_dry_run_does_not_download(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO, logger="prosig")
     downloads = []
 
-    fetch_sources(
+    setup_data_sources(
         force=False,
         dry_run=True,
         threads=16,
         sources=[
-            FetchSource(
-                description="Swiss-Prot fasta",
-                url="https://example.test/uniprot_sprot.fasta.gz",
-                destination="uniprot_sprot.fasta.gz",
+            SetupDataSource(
+                description="Swiss-Prot GO",
+                url="https://example.test/uniprot_sprot.dat.gz",
+                destination="uniprot_sprot.dat.gz",
             )
         ],
         downloader=lambda *args, **kwargs: downloads.append((args, kwargs)),
@@ -120,8 +134,8 @@ def test_fetch_dry_run_does_not_download(tmp_path: Path, monkeypatch, caplog) ->
 
     assert downloads == []
     assert caplog.messages == [
-        "Would download Swiss-Prot fasta: "
-        "https://example.test/uniprot_sprot.fasta.gz -> uniprot_sprot.fasta.gz"
+        "Would download Swiss-Prot GO: "
+        "https://example.test/uniprot_sprot.dat.gz -> uniprot_sprot.dat.gz"
     ]
 
 

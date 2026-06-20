@@ -17,10 +17,28 @@ def test_short_help_option() -> None:
     assert result.exit_code == 0
     assert "Usage:" in result.stdout
     assert "version" in result.stdout
+    assert "build-library" in result.stdout
+
+
+def test_build_library_help_includes_planned_options() -> None:
+    result = CliRunner().invoke(app, ["build-library", "-h"])
+
+    assert result.exit_code == 0
+    assert "Build the compact GO graph" in result.stdout
+    assert "--go-obo" in result.stdout
+    assert "--swissprot" in result.stdout
+    assert "--go-out" in result.stdout
+    assert "--write-report" in result.stdout
+    assert "--namespace" not in result.stdout
+    assert "--include-part-of" not in result.stdout
+    assert "--ic-log-base" not in result.stdout
+    assert "--min-count" not in result.stdout
 
 
 def test_log_level_option_suppresses_info_logs() -> None:
-    result = CliRunner().invoke(app, ["--log-level", "WARNING", "fetch", "--dry-run"])
+    result = CliRunner().invoke(
+        app, ["--log-level", "WARNING", "setup-data", "--dry-run"]
+    )
 
     assert result.exit_code == 0
     assert "[INFO]:" not in result.output

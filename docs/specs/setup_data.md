@@ -1,14 +1,14 @@
-# Fetch Subcommand Spec
+# Setup Data Subcommand Spec
 
 ## Goal
 
-Define the `prosig fetch` subcommand for retrieving external files needed by ProSig workflows.
+Define the `prosig setup-data` subcommand for retrieving external files needed by ProSig workflows.
 
 ## Scope
 
 Use this spec to describe:
 
-- What datasets or resources `fetch` should retrieve.
+- What datasets or resources `setup-data` should retrieve.
 - Where fetched files should be written.
 - Which files are required versus optional.
 - How existing files should be handled.
@@ -27,7 +27,7 @@ Shared download behavior belongs in `prosig.io.download`.
 
 The shared `download_file()` helper must not decide whether overwriting is allowed. If `download_file()` is called, it always performs a fresh download and atomically replaces any existing destination file after the new download completes.
 
-Force or skip behavior belongs in the calling command or workflow. `prosig fetch` should check whether a destination already exists and decide whether to call `download_file()` based on user options such as `--force`.
+Force or skip behavior belongs in the calling command or workflow. `prosig setup-data` should check whether a destination already exists and decide whether to call `download_file()` based on user options such as `--force`.
 
 Default existing-file behavior:
 
@@ -51,7 +51,7 @@ Log format:
 Example:
 
 ```text
-[INFO]: Downloading GO Graph: https://current.geneontology.org/ontology/go-basic.obo -> go.obo
+[INFO]: Downloading GO Graph: https://current.geneontology.org/ontology/go-basic.obo -> go-basic.obo
 ```
 
 The root `prosig` command should allow users to set the logger level.
@@ -81,7 +81,7 @@ Use multi-threaded downloads when supported by the source server.
 Default threaded download behavior:
 
 - Use 16 download threads by default.
-- Add a `fetch` option to alter the thread count.
+- Add a `setup-data` option to alter the thread count.
 - Log the requested thread count when starting a download.
 - Log whether the completed download used multi-threaded or single-threaded mode.
 - Apply multi-threaded downloading to files larger than 50 MB when file size can be detected before downloading.
@@ -91,7 +91,7 @@ Default threaded download behavior:
 ## Proposed Command Shape
 
 ```bash
-prosig fetch [OPTIONS]
+prosig setup-data [OPTIONS]
 ```
 
 Potential options to specify:
@@ -119,11 +119,10 @@ Implementation must add or update focused tests for:
 
 Do not unpack compressed files when downloading. We will read and process these files in stream mode.
 
-The `fetch` command will only download from the internet.
+The `setup-data` command will only download from the internet.
 
 | Description | Source URL | Destination |
 | --- | --- | --- |
-| GO Graph | https://current.geneontology.org/ontology/go-basic.obo | go.obo |
-| Swiss-Prot fasta | https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz | uniprot_sprot.fasta.gz |
+| GO Graph | https://current.geneontology.org/ontology/go-basic.obo | go-basic.obo |
 | Swiss-Prot GO | https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.dat.gz | uniprot_sprot.dat.gz |
 | PROSITE | https://ftp.expasy.org/databases/prosite/prosite.dat | prosite.dat |
