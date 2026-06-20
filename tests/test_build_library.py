@@ -86,7 +86,8 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
     assert meta["n_accessions_provided"] == 6
     assert meta["n_accessions_with_hq_mf_go"] == 5
     assert meta["n_accessions_with_any_mf_go"] == 5
-    assert meta["n_hq_mf_go_assignments_not_in_graph"] == 1
+    assert meta["n_hq_mf_go_assignments_not_in_graph"] == 2
+    assert meta["n_hq_mf_go_assignments_obsolete"] == 1
     assert meta["mf_frequency_min"] == 1
     assert meta["mf_frequency_median"] == 1
     assert meta["mf_frequency_mean"] == 1.25
@@ -108,8 +109,11 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
         "source_checksums",
     }
     assert not removed_meta_fields & set(meta)
-    assert "number of accessions used for IC: 3" in report_out.read_text(
-        encoding="utf-8"
+    report_text = report_out.read_text(encoding="utf-8")
+    assert "number of accessions used for IC: 3" in report_text
+    assert (
+        "number of HQ MF GO assignments skipped because the GO term is obsolete: 1"
+        in report_text
     )
     go_json_text = go_json_out.read_text(encoding="utf-8")
     assert go_json_text.startswith('{\n  "_comment": "Diagnostic only.')
@@ -135,7 +139,8 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
         "GO annotation accession summary: total=6; MF=5; MF high-quality=5; "
         "BP=2; BP high-quality=2; CC=2; CC high-quality=2",
         "Propagating MF GO annotations",
-        "Calculated IC values using 3 accessions",
+        "Calculated IC values using 3 accessions; skipped 2 HQ MF GO assignments",
+        "Skipped 1 HQ MF GO assignments because the GO term is obsolete",
         "1 GO terms did not receive valid IC because no accession matched them",
         "Top 10 most frequent MF GO terms",
         "1. GO:0003674 molecular_function count=3 freq=1 ic=0",

@@ -121,6 +121,7 @@ accession	go_term	evidence
     "n_accessions_with_hq_mf_go": 0,
     "n_accessions_with_any_mf_go": 0,
     "n_hq_mf_go_assignments_not_in_graph": 0,
+    "n_hq_mf_go_assignments_obsolete": 0,
     "created_at": "YYYY-MM-DD"
 }
 ```
@@ -283,6 +284,7 @@ n_accessions_provided = number of primary Swiss-Prot accessions parsed from the 
 n_accessions_with_hq_mf_go = number of accessions with at least one high-quality MF GO annotation before graph filtering
 ic_denominator = number of accessions with at least one valid MF term present in the graph
 n_hq_mf_go_assignments_not_in_graph = number of high-quality MF GO annotation assignments whose GO IDs are not present in the retained MF graph
+n_hq_mf_go_assignments_obsolete = number of high-quality MF GO annotation assignments whose GO IDs are obsolete
 ```
 
 For each term:

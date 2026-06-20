@@ -65,6 +65,10 @@ def build_go_pkl(
         format_log_number(annotation_stats["n_accessions_used_for_ic"]),
         format_log_number(annotation_stats["n_hq_mf_go_assignments_not_in_graph"]),
     )
+    logger.info(
+        "Skipped %s HQ MF GO assignments because the GO term is obsolete",
+        format_log_number(annotation_stats["n_hq_mf_go_assignments_obsolete"]),
+    )
     frequency_metadata = format_go_frequency_metadata(annotation_stats)
     logger.info(
         "%s GO terms did not receive valid IC because no accession matched them",
@@ -90,6 +94,9 @@ def build_go_pkl(
         ],
         "n_hq_mf_go_assignments_not_in_graph": annotation_stats[
             "n_hq_mf_go_assignments_not_in_graph"
+        ],
+        "n_hq_mf_go_assignments_obsolete": annotation_stats[
+            "n_hq_mf_go_assignments_obsolete"
         ],
         **frequency_metadata,
         "created_at": datetime.now(UTC).date().isoformat(),
@@ -386,6 +393,7 @@ def apply_ic_from_accessions(
 ) -> dict[str, Any]:
     counts = {go_id: 0 for go_id in terms}
     skipped_go_term_counts: Counter[str] = Counter()
+    obsolete_go_term_counts: Counter[str] = Counter()
     used_accessions = 0
 
     for direct_terms in accession_to_terms.values():
@@ -394,6 +402,7 @@ def apply_ic_from_accessions(
             counts,
             direct_terms,
             skipped_go_term_counts,
+            obsolete_go_term_counts,
             obsolete_go_ids=set(),
         )
 
@@ -404,7 +413,9 @@ def apply_ic_from_accessions(
         "n_hq_mf_go_assignments_not_in_graph": sum(
             skipped_go_term_counts.values()
         ),
+        "n_hq_mf_go_assignments_obsolete": sum(obsolete_go_term_counts.values()),
         "skipped_go_term_counts": skipped_go_term_counts,
+        "obsolete_go_term_counts": obsolete_go_term_counts,
     }
 
 
@@ -417,6 +428,7 @@ def apply_ic_from_swissprot(
     counts = {go_id: 0 for go_id in terms}
     direct_go_term_counts: Counter[str] = Counter()
     skipped_go_term_counts: Counter[str] = Counter()
+    obsolete_go_term_counts: Counter[str] = Counter()
     stats: dict[str, Any] = {
         "n_accessions_provided": 0,
         "n_accessions_with_any_mf_go": 0,
@@ -427,8 +439,10 @@ def apply_ic_from_swissprot(
         "n_accessions_with_hq_cc_go": 0,
         "n_accessions_used_for_ic": 0,
         "n_hq_mf_go_assignments_not_in_graph": 0,
+        "n_hq_mf_go_assignments_obsolete": 0,
         "direct_go_term_counts": direct_go_term_counts,
         "skipped_go_term_counts": skipped_go_term_counts,
+        "obsolete_go_term_counts": obsolete_go_term_counts,
     }
 
     for _accession, annotation in iter_swissprot_go_annotations(path):
@@ -442,12 +456,16 @@ def apply_ic_from_swissprot(
             counts,
             direct_terms,
             skipped_go_term_counts,
+            obsolete_go_term_counts,
             obsolete_go_ids=obsolete_go_ids,
         )
 
     _finalize_ic_terms(terms, counts, stats["n_accessions_used_for_ic"])
     stats["n_hq_mf_go_assignments_not_in_graph"] = sum(
         skipped_go_term_counts.values()
+    )
+    stats["n_hq_mf_go_assignments_obsolete"] = sum(
+        obsolete_go_term_counts.values()
     )
     return stats
 
@@ -575,12 +593,15 @@ def _apply_accession_terms_to_counts(
     counts: dict[str, int],
     direct_terms: set[str],
     skipped_go_term_counts: Counter[str],
+    obsolete_go_term_counts: Counter[str],
     *,
     obsolete_go_ids: set[str],
 ) -> int:
     propagated_terms: set[str] = set()
     for go_id in direct_terms:
         if go_id in obsolete_go_ids:
+            skipped_go_term_counts[go_id] += 1
+            obsolete_go_term_counts[go_id] += 1
             continue
         if go_id not in terms:
             skipped_go_term_counts[go_id] += 1
@@ -648,6 +669,8 @@ def format_go_report(artifact: dict[str, Any]) -> str:
         f"filtering: {accessions_skipped_no_valid_mf}",
         "number of HQ MF GO assignments skipped because they were not in the MF graph: "
         f"{artifact['meta']['n_hq_mf_go_assignments_not_in_graph']}",
+        "number of HQ MF GO assignments skipped because the GO term is obsolete: "
+        f"{artifact['meta']['n_hq_mf_go_assignments_obsolete']}",
         f"number of terms with count > 0: {len(counted_terms)}",
         f"number of terms with IC value: {len(ic_terms)}",
         f"maximum depth: {max_depth}",
