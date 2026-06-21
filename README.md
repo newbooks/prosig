@@ -30,6 +30,10 @@ assignment evidence codes are maintained in `src/prosig/go/build.py`; applying
 the same exclusion rule to unreviewed annotation sources requires a separate
 review.
 
+`build-library` also writes `accession_mf_go.tsv`, a headerless two-column TSV
+mapping primary Swiss-Prot accessions to semicolon-separated high-quality direct
+MF GO terms for later diagnostics and GO set similarity.
+
 ## Diagnostic Inspection
 
 `prosig inspect` is a diagnostic command group for checking intermediate
@@ -43,6 +47,8 @@ prosig inspect go-term GO:0005524 --go-graph go_graph.pkl --ancestors
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl --verbose
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-style ascii
+prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
+prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
 ```
 
 The inspect surface is intended to grow with artifact diagnostics for

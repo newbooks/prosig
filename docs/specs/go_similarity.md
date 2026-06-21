@@ -98,7 +98,8 @@ The detailed result should include:
 The class can later add:
 
 - pairwise score caches
-- GO term-set similarity using Average Maximum Best-match
+- GO term-set similarity using Average Maximum Best-match; see
+  `go_set_similarity.md`
 - accession-to-term resolution
 - vectorized or matrix output for clustering
 

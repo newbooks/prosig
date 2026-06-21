@@ -135,6 +135,11 @@ def build_go_pkl(
         excluded_mf_annotations_out,
     )
 
+    accession_mf_go_out = go_out.parent / "accession_mf_go.tsv"
+    logger.info("Writing accession MF GO terms: %s", accession_mf_go_out)
+    write_accession_mf_go_tsv(accession_mf_go_out, swissprot)
+    logger.info("Wrote accession MF GO terms: %s", accession_mf_go_out)
+
     return artifact
 
 
@@ -582,6 +587,19 @@ def write_excluded_mf_annotation_diagnostics(
             for go_id, evidence in annotation.mf_go_terms:
                 if evidence in EXCLUDED_EVIDENCE:
                     handle.write(f"{accession}\t{go_id}\t{evidence}\n")
+
+
+def write_accession_mf_go_tsv(
+    path: Path,
+    swissprot: Path,
+) -> None:
+    """Write primary Swiss-Prot accessions and high-quality MF GO terms."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for accession, terms in iter_swissprot_mf_go(swissprot):
+            if not terms:
+                continue
+            handle.write(f"{accession}\t{';'.join(sorted(terms))}\n")
 
 
 def is_high_quality_evidence(evidence: str) -> bool:

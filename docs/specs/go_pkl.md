@@ -103,6 +103,26 @@ accession	go_term	evidence
 ...
 ```
 
+The build also writes primary accession-to-MF-GO terms for later accession
+diagnostics and GO set similarity:
+
+```text
+accession_mf_go.tsv
+```
+
+This file contains only primary Swiss-Prot accessions with at least one
+high-quality Molecular Function GO annotation. GO terms are direct annotations
+from `uniprot_sprot.dat.gz`, not propagated ancestors. The file is headerless
+two-column TSV:
+
+```text
+accession	mf_go_terms
+A0A023FBW4	GO:0019958
+A0A024B7W1	GO:0008289;GO:0034062;GO:0060090;GO:0140272
+```
+
+Excluded evidence codes are omitted. Terms are sorted within each accession.
+
 ## `meta` Fields
 
 ```python
