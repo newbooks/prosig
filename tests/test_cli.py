@@ -28,6 +28,8 @@ def test_build_library_help_includes_planned_options() -> None:
     assert "--go-obo" in result.stdout
     assert "--swissprot" in result.stdout
     assert "--go-out" in result.stdout
+    assert "--prosite-dat" in result.stdout
+    assert "--motif-out" in result.stdout
     assert "--write-report" in result.stdout
     assert "--namespace" not in result.stdout
     assert "--include-part-of" not in result.stdout

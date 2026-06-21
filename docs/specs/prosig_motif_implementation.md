@@ -111,9 +111,11 @@ Parsing rules:
 - Skip selected `PATTERN` entries that have no `PA` line.
 - Parse `name` from the first `ID` field.
 - Parse `prosite_ac` from `AC`, removing a trailing semicolon.
-- Parse `description` from `DE`.
+- Parse `description` from `DE`, stripping one terminal `.` if present.
 - Build `prosite_pattern` by stripping each `PA` line and concatenating all
   `PA` fragments in entry order.
+- Strip one terminal `.` from the concatenated `prosite_pattern` before writing
+  the motif library row.
 
 Output rules:
 
@@ -198,7 +200,7 @@ Examples:
 
 ```text
 PROSITE: C-x(2)-C-x(10,15)-H-x(2)-H.
-ProSig:  C??C?(10,15)H??H
+ProSig:  C?(2)C?(10,15)H?(2)H
 
 PROSITE: N-{P}-[ST]-{P}.
 ProSig:  N!P[ST]!P

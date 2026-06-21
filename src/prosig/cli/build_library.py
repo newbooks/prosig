@@ -5,6 +5,7 @@ import typer
 
 from prosig.cli.logging import get_logger
 from prosig.go.build import MF_ROOT, build_go_pkl, format_log_number
+from prosig.motifs.prosite import write_prosig_motif_library
 
 
 def build_library(
@@ -26,6 +27,20 @@ def build_library(
             help="Path to write the compact GO graph and IC artifact.",
         ),
     ] = Path("go_graph.pkl"),
+    prosite_dat: Annotated[
+        Path,
+        typer.Option(
+            "--prosite-dat",
+            help="Path to the PROSITE dat source file for motif translation.",
+        ),
+    ] = Path("prosite.dat"),
+    motif_out: Annotated[
+        Path,
+        typer.Option(
+            "--motif-out",
+            help="Path to write the translated ProSig motif library TSV.",
+        ),
+    ] = Path("prosig_motifs.tsv"),
     write_report: Annotated[
         Path | None,
         typer.Option(
@@ -34,7 +49,7 @@ def build_library(
         ),
     ] = None,
 ) -> None:
-    """Build the compact GO graph and IC artifact."""
+    """Build the compact GO graph, IC artifact, and ProSig motif library."""
     artifact = build_go_pkl(
         go_obo=go_obo,
         swissprot=swissprot,
@@ -55,3 +70,27 @@ def build_library(
     )
     if write_report is not None:
         logger.info("Wrote build report to %s", write_report)
+
+    motif_result = write_prosig_motif_library(
+        prosite_file=prosite_dat,
+        output_file=motif_out,
+        logger=logger,
+    )
+    motif_stats = motif_result.stats
+    logger.info("Wrote ProSig motif library to %s", motif_result.output_file)
+    logger.info(
+        "Translated %s of %s PROSITE PATTERN entries into ProSig motifs",
+        format_log_number(motif_stats.translated_entries),
+        format_log_number(motif_stats.pattern_entries),
+    )
+    logger.info(
+        "Skipped %s PATTERN entries without PA lines; "
+        "omitted %s unsupported translations",
+        format_log_number(motif_stats.skipped_pattern_entries_without_pa),
+        format_log_number(motif_stats.failed_entries),
+    )
+    logger.info(
+        "Converted %s entries to ProSig macros; translated %s ambiguous residue codes",
+        format_log_number(motif_stats.macro_converted_entries),
+        format_log_number(motif_stats.ambiguous_codes_translated),
+    )

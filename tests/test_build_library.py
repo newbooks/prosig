@@ -165,6 +165,7 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     monkeypatch.chdir(tmp_path)
     Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
     _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
 
     result = CliRunner().invoke(app, ["build-library", "--write-report", "report.txt"])
 
@@ -174,6 +175,12 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     assert Path("go_graph.json").exists()
     assert not Path("go_frequency_metadata.tsv").exists()
     assert Path("excluded_mf_annotations.tsv").exists()
+    assert Path("prosig_motifs.tsv").read_text(encoding="utf-8") == (
+        "# ProSig motif library\n"
+        "name\tprosite_ac\tdescription\tprosite_pattern\tprosig_pattern\tstatus\n"
+        "N_GLYCOSYLATION\tPS00001\tN-glycosylation site\t"
+        "N-{P}-[ST]-{P}\tN!P[ST]!P\tprosite\n"
+    )
 
 
 def _write_gzip(path: Path, text: str) -> None:
@@ -224,6 +231,15 @@ is_a: GO:0003674 ! molecular_function
 id: GO:0008150
 name: biological_process
 namespace: biological_process
+"""
+
+
+def _small_prosite() -> str:
+    return """ID   N_GLYCOSYLATION; PATTERN.
+AC   PS00001;
+DE   N-glycosylation site.
+PA   N-{P}-[ST]-{P}.
+//
 """
 
 

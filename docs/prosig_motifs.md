@@ -130,7 +130,7 @@ A ProSig motif library is a UTF-8 tab-separated file. Comment lines begin with
 ```text
 # ProSig motif library
 name	prosite_ac	description	prosite_pattern	prosig_pattern	status
-N_GLYCOSYLATION	PS00001	N-glycosylation site.	N-{P}-[ST]-{P}.	N!P[ST]!P	prosite
+N_GLYCOSYLATION	PS00001	N-glycosylation site	N-{P}-[ST]-{P}	N!P[ST]!P	prosite
 ```
 
 Required columns:
@@ -140,7 +140,7 @@ Required columns:
 | `name` | Unique motif name. This becomes the output `motif_id`. |
 | `prosite_ac` | Source PROSITE accession when available. Leave empty for non-PROSITE motifs. |
 | `description` | Human-readable motif description. |
-| `prosite_pattern` | Original source pattern when available. Leave empty for new native ProSig motifs. |
+| `prosite_pattern` | Original source pattern when available, without the terminal PROSITE period. Leave empty for new native ProSig motifs. |
 | `prosig_pattern` | Pattern in ProSig motif syntax. |
 | `status` | Motif source/status label. Use `prosite` for motifs translated from PROSITE and `prosig` for native ProSig motifs. Other values are preserved as provided. |
 
