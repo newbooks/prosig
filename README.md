@@ -32,7 +32,8 @@ review.
 
 - `AGENT.md`: working instructions for coding agents.
 - `docs/todos/`: project TODOs and backlog.
-- `docs/specs/`: implementation specs for motif discovery, function prediction, and related workflows.
+- `docs/prosig_motifs.md`: user guide for ProSig motif syntax and motif libraries.
+- `docs/specs/`: implementation specs for motif discovery, ProSig motif handling, function prediction, and related workflows.
 - `docs/decisions/`: durable technical and scientific decision records.
 - `src/prosig/`: package source code.
 - `tests/`: test notes and future test suite.

@@ -8,6 +8,8 @@ Current specs:
 - `setup_data.md`: `setup-data` external resource retrieval command.
 - `go_pkl.md`: minimal GO Molecular Function graph and IC artifact.
 - `motif_discovery.md`: protein signature discovery workflow.
+- `prosig_motif_implementation.md`: ProSig motif format, PROSITE translation,
+  and scanning behavior to preserve or port.
 - `function_prediction.md`: function prediction from signatures.
 
 Recommended structure:
