@@ -1,2 +1,1 @@
-"""GO graph construction utilities."""
-
+"""GO graph construction and similarity utilities."""
