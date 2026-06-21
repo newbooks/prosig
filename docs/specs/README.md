@@ -7,6 +7,8 @@ Current specs:
 - `cli.md`: Typer-based command and subcommand interface.
 - `setup_data.md`: `setup-data` external resource retrieval command.
 - `go_pkl.md`: minimal GO Molecular Function graph and IC artifact.
+- `go_similarity.md`: Molecular Function Lin similarity over `go_graph.pkl`.
+- `inspect_cli.md`: diagnostic `prosig inspect` command group.
 - `motif_discovery.md`: protein signature discovery workflow.
 - `prosig_motif_implementation.md`: ProSig motif format, PROSITE translation,
   and scanning behavior to preserve or port.

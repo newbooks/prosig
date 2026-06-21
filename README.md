@@ -10,6 +10,8 @@ routine analysis workflows:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable Leiden
   function clusters, and customizable motif library.
+- `prosig inspect`: inspect ProSig artifacts and diagnostic calculations,
+  including GO terms and Lin similarity scores.
 - `prosig discover`: discover discriminative motifs from grouped function
   clusters and background sequences.
 - `prosig annotate`: scan sequence(s), report motif hits, and infer sequence
@@ -27,6 +29,24 @@ reviewed Swiss-Prot accession file `uniprot_sprot.dat.gz`. The excluded GO
 assignment evidence codes are maintained in `src/prosig/go/build.py`; applying
 the same exclusion rule to unreviewed annotation sources requires a separate
 review.
+
+## Diagnostic Inspection
+
+`prosig inspect` is a diagnostic command group for checking intermediate
+artifacts before clustering, motif discovery, or prediction work depends on
+them. The initial GO commands use only the Molecular Function namespace and only
+the Lin semantic similarity score:
+
+```text
+prosig inspect go-summary --go-graph go_graph.pkl
+prosig inspect go-term GO:0005524 --go-graph go_graph.pkl --ancestors
+prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl
+prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl --verbose
+prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-style ascii
+```
+
+The inspect surface is intended to grow with artifact diagnostics for
+accessions, motifs, clustering inputs, and standalone similarity calculations.
 
 ## Project Structure
 

@@ -59,6 +59,8 @@ Start with these top-level subcommands:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable function
   clusters, and motif library.
+- `prosig inspect`: inspect GO terms, accessions, motifs, similarity scores,
+  and other diagnostic artifacts.
 - `prosig discover`: discover sequence signatures from positive and background or negative sequence sets.
 - `prosig annotate`: scan sequences against a signature library and predict
   protein function from signature hits.
@@ -72,6 +74,27 @@ Start with these top-level subcommands:
 - Prefer file paths and formats that can be used in reproducible scripts.
 - Return non-zero exit codes for invalid inputs or failed workflows.
 - Keep output formats stable once documented.
+
+## `inspect` Command Group
+
+`prosig inspect` is for diagnostics rather than production analysis. It should
+make intermediate artifacts easy to verify before they feed clustering, motif
+discovery, or prediction.
+
+Initial implemented commands:
+
+- `prosig inspect go-summary --go-graph go_graph.pkl`: report GO artifact
+  metadata and IC coverage.
+- `prosig inspect go-term GO:0005524 --go-graph go_graph.pkl`: report one MF
+  GO term. `--ancestors` includes the term itself plus all ancestors.
+- `prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl`:
+  report the Lin similarity score. `--verbose` or `-v` adds term descriptions,
+  common ancestors, selected MICA, IC values, status, reason, formula, and a
+  compact GO path. The path uses Unicode tree connectors by default; use
+  `--tree-style ascii` for ASCII output.
+
+Planned diagnostic commands include accession lookup, motif lookup, motif
+summary, GO term-set similarity, and cluster/member inspection.
 
 ## Open Questions
 

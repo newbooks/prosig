@@ -59,7 +59,6 @@ GO term lookup
 ancestor lookup
 lowest common ancestor / most informative common ancestor
 Lin similarity
-Resnik similarity
 GO term depth lookup
 IC lookup
 ```

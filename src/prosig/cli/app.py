@@ -4,6 +4,7 @@ from importlib.metadata import version as package_version
 import typer
 
 from prosig.cli.build_library import build_library
+from prosig.cli.inspect import inspect_app
 from prosig.cli.logging import configure_logging, log_level_names
 from prosig.cli.setup_data import setup_data
 
@@ -50,6 +51,7 @@ def version() -> None:
 
 app.command(name="setup-data")(setup_data)
 app.command(name="build-library")(build_library)
+app.add_typer(inspect_app, name="inspect")
 
 
 def main() -> None:

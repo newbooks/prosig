@@ -18,6 +18,7 @@ def test_short_help_option() -> None:
     assert "Usage:" in result.stdout
     assert "version" in result.stdout
     assert "build-library" in result.stdout
+    assert "inspect" in result.stdout
 
 
 def test_build_library_help_includes_planned_options() -> None:
