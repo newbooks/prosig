@@ -8,6 +8,8 @@ Current specs:
 - `setup_data.md`: `setup-data` external resource retrieval command.
 - `go_pkl.md`: minimal GO Molecular Function graph and IC artifact.
 - `go_similarity.md`: Molecular Function Lin similarity over `go_graph.pkl`.
+- `go_set_similarity.md`: AMB similarity between Molecular Function GO term
+  sets and accession-resolved GO profiles.
 - `inspect_cli.md`: diagnostic `prosig inspect` command group.
 - `motif_discovery.md`: protein signature discovery workflow.
 - `prosig_motif_implementation.md`: ProSig motif format, PROSITE translation,

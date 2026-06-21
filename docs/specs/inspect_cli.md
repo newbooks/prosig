@@ -103,13 +103,44 @@ Options:
 - `--tree-style unicode|ascii`: choose Unicode or ASCII connectors for the
   compact GO path in verbose output. Unicode is the default.
 
+### `go-set-sim`
+
+```text
+prosig inspect go-set-sim "(GO:0005524;GO:0004672)" "(GO:0005515)"
+prosig inspect go-set-sim "GO:0005524;GO:0004672" "GO:0005515"
+prosig inspect go-set-sim GO:0005524,GO:0004672 GO:0005515
+prosig inspect go-set-sim P00533 Q9SVY5 --accession-go accession_mf_go.tsv
+prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --accession-go accession_mf_go.tsv
+```
+
+This command computes AMB similarity between two MF GO term sets. Direct sets
+use semicolon- or comma-separated GO IDs, with optional parentheses. Accession
+inputs resolve through a separate accession-to-MF-GO TSV artifact. Mixed
+direct-set/accession inputs are allowed. See `go_set_similarity.md`.
+
+Shell note: direct GO sets must be quoted or escaped in common shells because
+parentheses and semicolons are shell syntax. Comma-separated sets without
+parentheses usually do not require quotes.
+
+Verbose output includes query labels, accession-expanded GO sets inline, one GO
+term description section, A-to-B and B-to-A best-match rows using GO IDs only,
+directional means, and the AMB formula. Best-match edge scores are shown with
+four decimal places:
+
+```text
+B query: A0A024B7W1 (GO:0003724;GO:0003725;GO:0003968)
+```
+
+```text
+GO:0005524 --0.2211--> GO:0004672
+```
+
 ## Planned Commands
 
 Future diagnostic commands should be added under this command group:
 
 - accession lookup against an accession-to-MF-GO artifact
 - motif summary and motif lookup
-- term-set similarity
 - cluster summary and cluster member inspection
 - explanation views connecting motif hits to predicted functions
 

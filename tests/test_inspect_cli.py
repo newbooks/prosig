@@ -63,6 +63,7 @@ def test_inspect_help_lists_diagnostic_commands() -> None:
     assert "go-summary" in result.stdout
     assert "go-term" in result.stdout
     assert "go-sim" in result.stdout
+    assert "go-set-sim" in result.stdout
     assert "go-similarity" not in result.stdout
 
 
@@ -219,3 +220,166 @@ def test_inspect_go_sim_ascii_tree_style_works(tmp_path) -> None:
     assert "   `- GO:0000001 parent activity [MICA]" in result.stdout
     assert "      |- GO:0000002 child A activity [A]" in result.stdout
     assert "      `- GO:0000003 child B activity [B]" in result.stdout
+
+
+def test_inspect_go_set_sim_help_mentions_quoting() -> None:
+    result = CliRunner().invoke(app, ["inspect", "go-set-sim", "-h"])
+
+    assert result.exit_code == 0
+    assert "Quote GO set expressions" in result.stdout
+
+
+def test_inspect_go_set_sim_outputs_simple_score_for_direct_sets(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "(GO:0000002;GO:0000003)",
+            "(GO:0000002)",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "0.85\n"
+
+
+def test_inspect_go_set_sim_allows_mixed_set_and_accession(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    _write_go_graph(go_graph)
+    accession_go.write_text("P00001\tGO:0000002\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "(GO:0000002;GO:0000003)",
+            "P00001",
+            "--go-graph",
+            str(go_graph),
+            "--accession-go",
+            str(accession_go),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "0.85\n"
+
+
+def test_inspect_go_set_sim_accepts_quoted_set_without_parentheses(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "GO:0000002;GO:0000003",
+            "GO:0000002",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "0.85\n"
+
+
+def test_inspect_go_set_sim_simple_output_does_not_build_details(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_go_graph(go_graph)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("simple go-set-sim should use scalar set_lin_amb()")
+
+    monkeypatch.setattr(GoSimilarity, "set_lin_amb_with_details", fail_if_called)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "(GO:0000002;GO:0000003)",
+            "(GO:0000002)",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "0.85\n"
+
+
+def test_inspect_go_set_sim_verbose_explains_amb_score(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "(GO:0000002;GO:0000003)",
+            "(GO:0000002)",
+            "--go-graph",
+            str(go_graph),
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Score: 0.85" in result.stdout
+    assert "A query: (GO:0000002;GO:0000003)" in result.stdout
+    assert "B query: (GO:0000002)" in result.stdout
+    duplicated_query = "A query: (GO:0000002;GO:0000003) (GO:0000002;GO:0000003)"
+    assert duplicated_query not in result.stdout
+    assert "GO term descriptions:" in result.stdout
+    assert "- A: GO:0000002 child A activity" in result.stdout
+    assert "- A: GO:0000003 child B activity" in result.stdout
+    assert "IC=2" not in result.stdout
+    assert "A -> B best matches:" in result.stdout
+    assert "GO:0000003 --0.4000--> GO:0000002" in result.stdout
+    assert "GO:0000003 child B activity --0.4-->" not in result.stdout
+    assert "A -> B average max: 0.7" in result.stdout
+    assert "B -> A average max: 1" in result.stdout
+    assert "Formula: AMB(A, B) = (mean(A -> B) + mean(B -> A)) / 2" in result.stdout
+    assert "                   = (0.7 + 1) / 2" in result.stdout
+    assert "                   = 0.85" in result.stdout
+
+
+def test_inspect_go_set_sim_verbose_expands_accession_query(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    _write_go_graph(go_graph)
+    accession_go.write_text("P00001\tGO:0000002;GO:0000003\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-set-sim",
+            "P00001",
+            "(GO:0000002)",
+            "--go-graph",
+            str(go_graph),
+            "--accession-go",
+            str(accession_go),
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "A query: P00001 (GO:0000002;GO:0000003)" in result.stdout
+    assert "A expanded terms:" not in result.stdout
+    assert "B query: (GO:0000002)" in result.stdout

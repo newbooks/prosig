@@ -9,7 +9,14 @@ from typing import Annotated, Any
 import typer
 
 from prosig.go.build import MF_ROOT
-from prosig.go.similarity import GoSimilarity
+from prosig.go.similarity import (
+    GoBestMatch,
+    GoSetSimilarityResult,
+    GoSimilarity,
+    is_go_term_set_input,
+    load_accession_mf_go_terms,
+    resolve_go_set_query,
+)
 
 inspect_app = typer.Typer(
     help="Inspect ProSig data artifacts and diagnostic calculations.",
@@ -136,10 +143,209 @@ def go_sim(
         return
 
 
+@inspect_app.command(name="go-set-sim")
+def go_set_sim(
+    set1: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "First GO set or accession. Quote GO set expressions in the "
+                "shell, e.g. '(GO:0003677;GO:0004386)'."
+            )
+        ),
+    ],
+    set2: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Second GO set or accession. Quote GO set expressions in the "
+                "shell, e.g. 'GO:0005524;GO:0046872'."
+            )
+        ),
+    ],
+    go_graph: Annotated[
+        Path,
+        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
+    ] = Path("go_graph.pkl"),
+    accession_go: Annotated[
+        Path,
+        typer.Option(
+            "--accession-go",
+            help="Path to accession_mf_go.tsv from build-library.",
+        ),
+    ] = Path("accession_mf_go.tsv"),
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Explain AMB directional best matches and final score.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write diagnostic output as JSON."),
+    ] = False,
+) -> None:
+    """Inspect AMB Lin similarity between two MF GO term sets."""
+    similarity = _load_go_similarity(go_graph)
+    terms1, terms2 = _resolve_go_set_queries(set1, set2, accession_go)
+
+    if not verbose and not json_output:
+        typer.echo(_format_score(similarity.set_lin_amb(terms1, terms2)))
+        return
+
+    result = similarity.set_lin_amb_with_details(
+        terms1,
+        terms2,
+        query1=set1,
+        query2=set2,
+    )
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
+        return
+
+    typer.echo(_format_go_set_sim_verbose(similarity, result))
+
+
+def _resolve_go_set_queries(
+    set1: str,
+    set2: str,
+    accession_go: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    accession_terms: dict[str, tuple[str, ...]] = {}
+    if not is_go_term_set_input(set1) or not is_go_term_set_input(set2):
+        try:
+            accession_terms = load_accession_mf_go_terms(accession_go)
+        except FileNotFoundError as exc:
+            raise typer.BadParameter(
+                f"accession GO file not found: {accession_go}"
+            ) from exc
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    try:
+        return (
+            resolve_go_set_query(set1, accession_terms),
+            resolve_go_set_query(set2, accession_terms),
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 def _format_score(score: float | None) -> str:
     if score is None:
         return "NA"
     return f"{score:.4f}".rstrip("0").rstrip(".")
+
+
+def _format_go_set_sim_verbose(
+    similarity: GoSimilarity,
+    result: GoSetSimilarityResult,
+) -> str:
+    lines = [
+        f"Score: {_format_score(result.similarity)}",
+        f"Status: {result.status}",
+    ]
+    if result.reason:
+        lines.append(f"Reason: {result.reason}")
+    lines.extend(
+        [
+            "",
+            _format_go_set_query("A", result.query1, result.terms1),
+            _format_go_set_query("B", result.query2, result.terms2),
+        ]
+    )
+    if result.missing_terms1:
+        lines.append(f"Ignored missing A terms: {';'.join(result.missing_terms1)}")
+    if result.missing_terms2:
+        lines.append(f"Ignored missing B terms: {';'.join(result.missing_terms2)}")
+
+    mean_1_to_2 = _mean_best_match_score(result.best_matches_1_to_2)
+    mean_2_to_1 = _mean_best_match_score(result.best_matches_2_to_1)
+    lines.extend(
+        [
+            "",
+            "GO term descriptions:",
+            *_format_go_set_term_descriptions(similarity, result),
+            "",
+            "A -> B best matches:",
+            *_format_best_matches(
+                result.best_matches_1_to_2,
+            ),
+            f"A -> B average max: {_format_score(mean_1_to_2)}",
+            "",
+            "B -> A best matches:",
+            *_format_best_matches(
+                result.best_matches_2_to_1,
+            ),
+            f"B -> A average max: {_format_score(mean_2_to_1)}",
+            "",
+            "Formula: AMB(A, B) = (mean(A -> B) + mean(B -> A)) / 2",
+            (
+                "                   = "
+                f"({_format_score(mean_1_to_2)} + {_format_score(mean_2_to_1)}) / 2"
+            ),
+            f"                   = {_format_score(result.similarity)}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _format_go_set_query(label: str, query: str, terms: tuple[str, ...]) -> str:
+    if is_go_term_set_input(query):
+        return f"{label} query: {query}"
+    return f"{label} query: {query} ({';'.join(terms)})"
+
+
+def _format_go_set_term_descriptions(
+    similarity: GoSimilarity,
+    result: GoSetSimilarityResult,
+) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for label, terms in (("A", result.valid_terms1), ("B", result.valid_terms2)):
+        for go_id in terms:
+            if go_id in seen:
+                continue
+            seen.add(go_id)
+            description = _format_go_id_and_name(similarity, go_id)
+            lines.append(f"- {label}: {description}")
+    if not lines:
+        return ["- none"]
+    return lines
+
+
+def _format_best_matches(
+    matches: tuple[GoBestMatch, ...],
+) -> list[str]:
+    if not matches:
+        return ["- none"]
+    return [
+        (
+            f"- {match.source} --{_format_fixed_score(match.score)}--> "
+            f"{match.target}"
+        )
+        for match in matches
+    ]
+
+
+def _format_fixed_score(score: float | None) -> str:
+    if score is None:
+        return "NA"
+    return f"{score:.4f}"
+
+
+def _format_go_id_and_name(similarity: GoSimilarity, go_id: str) -> str:
+    term = similarity.term(go_id)
+    if term is None:
+        return go_id
+    return f"{term.go_id} {term.name}"
+
+
+def _mean_best_match_score(matches: tuple[GoBestMatch, ...]) -> float | None:
+    if not matches:
+        return None
+    return sum(match.score for match in matches) / len(matches)
 
 
 def _format_go_sim_verbose(

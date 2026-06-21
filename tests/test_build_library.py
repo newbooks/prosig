@@ -8,7 +8,11 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from prosig.cli.app import app
-from prosig.go.build import build_go_pkl, parse_swissprot_entry
+from prosig.go.build import (
+    build_go_pkl,
+    parse_swissprot_entry,
+    write_accession_mf_go_tsv,
+)
 
 
 def test_parse_swissprot_entry_keeps_primary_accession_and_high_quality_mf() -> None:
@@ -37,6 +41,7 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
     report_out = tmp_path / "go_report.txt"
     go_json_out = tmp_path / "go_graph.json"
     excluded_mf_annotations_out = tmp_path / "excluded_mf_annotations.tsv"
+    accession_mf_go_out = tmp_path / "accession_mf_go.tsv"
     go_obo.write_text(_small_obo(), encoding="utf-8")
     _write_gzip(swissprot, _small_swissprot())
     caplog.set_level(logging.INFO, logger="prosig")
@@ -131,6 +136,13 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
         "accession\tgo_term\tevidence\n"
         "P00001\tGO:0000005\tNAS\n"
     )
+    assert accession_mf_go_out.read_text(encoding="utf-8") == (
+        "P00001\tGO:0000002\n"
+        "P00002\tGO:0000003\n"
+        "P00004\tGO:9999999\n"
+        "P00005\tGO:0000003\n"
+        "P00006\tGO:0000004\n"
+    )
     expected_log_fragments = [
         "Parsing GO OBO file",
         "Parsed 5 connected Molecular Function GO terms",
@@ -153,6 +165,8 @@ def test_build_go_pkl_keeps_mf_terms_and_computes_propagated_ic(
         "Wrote diagnostic GO graph JSON",
         "Writing excluded MF annotation diagnostics",
         "Wrote excluded MF annotation diagnostics",
+        "Writing accession MF GO terms",
+        "Wrote accession MF GO terms",
     ]
     for expected in expected_log_fragments:
         assert any(expected in message for message in caplog.messages)
@@ -175,11 +189,30 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     assert Path("go_graph.json").exists()
     assert not Path("go_frequency_metadata.tsv").exists()
     assert Path("excluded_mf_annotations.tsv").exists()
+    assert Path("accession_mf_go.tsv").exists()
     assert Path("prosig_motifs.tsv").read_text(encoding="utf-8") == (
         "# ProSig motif library\n"
         "name\tprosite_ac\tdescription\tprosite_pattern\tprosig_pattern\tstatus\n"
         "N_GLYCOSYLATION\tPS00001\tN-glycosylation site\t"
         "N-{P}-[ST]-{P}\tN!P[ST]!P\tprosite\n"
+    )
+
+
+def test_write_accession_mf_go_tsv_uses_primary_accessions_and_hq_mf_terms(
+    tmp_path: Path,
+) -> None:
+    swissprot = tmp_path / "uniprot_sprot.dat.gz"
+    output = tmp_path / "accession_mf_go.tsv"
+    _write_gzip(swissprot, _small_swissprot())
+
+    write_accession_mf_go_tsv(output, swissprot)
+
+    assert output.read_text(encoding="utf-8") == (
+        "P00001\tGO:0000002\n"
+        "P00002\tGO:0000003\n"
+        "P00004\tGO:9999999\n"
+        "P00005\tGO:0000003\n"
+        "P00006\tGO:0000004\n"
     )
 
 
