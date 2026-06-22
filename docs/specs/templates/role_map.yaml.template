@@ -1,0 +1,230 @@
+roles:
+
+  catalytic:
+    priority: 100
+    anchors:
+      - GO:0003824
+    keywords:
+      - "catalytic activity"
+      - "oxidoreductase activity"
+      - "transferase activity"
+      - "hydrolase activity"
+      - "lyase activity"
+      - "isomerase activity"
+      - "ligase activity"
+      - "kinase activity"
+      - "phosphatase activity"
+      - "monooxygenase activity"
+      - "helicase activity"
+      - "ATPase activity"
+
+  binding:
+    priority: 20
+    anchors:
+      - GO:0005488
+
+  binding_cofactor:
+    priority: 40
+    keywords:
+      - "heme binding"
+      - "iron ion binding"
+      - "zinc ion binding"
+      - "magnesium ion binding"
+      - "calcium ion binding"
+      - "ATP binding"
+      - "NAD binding"
+      - "FAD binding"
+      - "FMN binding"
+
+  binding_nucleic_acid:
+    priority: 45
+    keywords:
+      - "DNA binding"
+      - "RNA binding"
+      - "nucleic acid binding"
+
+  binding_generic:
+    priority: 20
+    keywords:
+      - "protein binding"
+      - "binding"
+
+  transporter:
+    priority: 90
+    anchors:
+      - GO:0005215
+    keywords:
+      - "transporter activity"
+      - "transmembrane transporter activity"
+      - "channel activity"
+
+  receptor:
+    priority: 80
+    anchors:
+      - GO:0004872
+    keywords:
+      - "receptor activity"
+      - "signaling receptor activity"
+
+  transcription_factor:
+    priority: 85
+    anchors:
+      - GO:0003700
+      - GO:0140223   # general transcription initiation factor activity
+    keywords:
+      - "DNA-binding transcription factor activity"
+      - "transcription factor activity"
+      - "general transcription initiation factor activity"
+      - "RNA polymerase III general transcription initiation factor activity"
+      - "DNA-binding transcription factor activity"
+      - "transcription factor activity"
+
+  regulator:
+    priority: 70
+    anchors:
+      - GO:0098772
+
+  structural:
+    priority: 60
+    anchors:
+      - GO:0005198
+    keywords:
+      - "structural molecule activity"
+      - "structural constituent"
+
+  motor:
+    priority: 65
+    anchors:
+      - GO:0003774
+
+  carrier:
+    priority: 65
+    anchors:
+      - GO:0140104   # molecular carrier activity
+    keywords:
+      - "carrier activity"
+
+  chaperone:
+    priority: 75
+    anchors:
+      - GO:0044183   # protein folding chaperone
+      - GO:0140713   # histone chaperone activity
+
+    keywords:
+      - "chaperone"
+      - "chaperone activity"
+      - "protein folding chaperone"
+      - "histone chaperone activity"
+
+  signal_transduction:
+    priority: 85
+    anchors:
+      - GO:0060089   # molecular transducer activity
+    keywords:
+      - "molecular transducer activity"
+      - "signal transducer activity"
+      - "phosphorelay response regulator activity"
+      - "response regulator activity"
+
+  transcription_regulator:
+    priority: 84
+    anchors:
+      - GO:0140110   # transcription regulator activity
+    keywords:
+      - "transcription regulator activity"
+      - "transcription elongation factor activity"
+      - "transcription coregulator activity"
+      - "transcription coactivator activity"
+      - "transcription corepressor activity"
+
+  translation_factor:
+    priority: 82
+    anchors:
+      - GO:0180051   # translation factor activity
+    keywords:
+      - "translation factor activity"
+      - "translation initiation factor activity"
+      - "translation elongation factor activity"
+      - "translation release factor activity"
+
+  histone_reader:
+    priority: 78
+    anchors:
+      - GO:0140566   # histone reader activity
+    keywords:
+      - "histone reader activity"
+      - "histone H1 reader activity"
+      - "histone H2A reader activity"
+      - "histone H2B reader activity"
+      - "histone H3 reader activity"
+      - "histone H4 reader activity"
+      - "histone H3K4me3 reader activity"
+      - "histone H3K36me3 reader activity"
+      - "histone H3Q5ser reader activity"
+      - "histone H4K20me2 reader activity"
+      - "histone H4K12ac reader activity"
+      - "histone H4K5ac reader activity"
+      - "histone H3K14ac reader activity"
+      - "histone H3K18cr reader activity"
+      - "histone H3K9cr reader activity"
+      - "histone H3K27me3 reader activity"
+      - "histone H3K9me2/3 reader activity"
+      - "histone H3K27cr reader activity"
+      - "histone H3K18ac reader activity"
+      - "histone H4K16ac reader activity"
+      - "histone H4K8ac reader activity"
+      - "histone H3K9ac reader activity"
+      - "histone H3K4me1 reader activity"
+      - "histone H4K20me1 reader activity"
+      - "histone H3K23ac reader activity"
+      - "histone H3K27ac reader activity"
+      - "histone H2AK15ub reader activity"
+      - "histone H2AK15ac reader activity"
+      - "histone H3R8me2 reader activity"
+      - "histone H3K56ac reader activity"
+      - "histone H2AK5ac reader activity"
+      - "histone H2AT120pho reader activity"
+      - "histone H2AS139pho reader activity"
+      - "histone H3K18ub reader activity"
+      - "histone H3K23ub reader activity"
+      - "histone H3K14ub reader activity"
+      - "histone H1K26me1 reader activity"
+      - "histone H1K26me2 reader activity"
+      - "histone H4K20me3 reader activity"
+
+  chromatin_adaptor:
+    priority: 72
+    anchors:
+      - GO:0140463   # chromatin-protein adaptor activity
+    keywords:
+      - "chromatin-protein adaptor activity"
+      - "histone reader activity"
+
+  transducer:
+    priority: 82
+    anchors:
+      - GO:0060089   # molecular transducer activity
+    keywords:
+      - "molecular transducer activity"
+      - "signal transducer activity"
+      - "energy transducer activity"
+      - "phosphorelay response regulator activity"
+
+  tagging:
+    priority: 68
+    anchors:
+      - GO:0141047   # molecular tag activity
+
+    keywords:
+      - "molecular tag activity"
+      - "protein tag activity"
+      - "membrane tag activity"
+
+  adaptor:
+    priority: 72
+    anchors:
+      - GO:0060090   # molecular adaptor activity
+
+    keywords:
+      - "adaptor activity"
+      - "adapter activity"
