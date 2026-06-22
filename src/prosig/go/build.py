@@ -26,6 +26,7 @@ def build_go_pkl(
     swissprot: Path,
     go_out: Path,
     report_out: Path | None = None,
+    role_map: Path | None = None,
 ) -> dict[str, Any]:
     logger = logging.getLogger(LOGGER_NAME)
 
@@ -76,6 +77,35 @@ def build_go_pkl(
     )
     log_top_frequency_terms(logger, terms, limit=10)
 
+    role_stats = None
+    if role_map is not None:
+        unknown_role_out = go_out.parent / "go_terms_unknown_role.txt"
+        logger.info("Loading GO semantic role map: %s", role_map)
+        logger.info(
+            "Assigning GO semantic roles to %s non-root GO terms",
+            format_log_number(len(terms) - 1),
+        )
+        logger.info("Applying Layer 1 GO anchor/ancestor role matching")
+        logger.info("Applying Layer 2 keyword role matching to remaining terms")
+        role_stats = assign_semantic_roles_from_file(
+            terms,
+            role_map,
+            unknown_role_out=unknown_role_out,
+        )
+        logger.info(
+            "Processed %s GO terms for semantic role assignment",
+            format_log_number(role_stats["processed"]),
+        )
+        logger.info(
+            "GO semantic role layer summary:\n%s",
+            format_semantic_role_layer_summary(role_stats),
+        )
+        logger.info(
+            "GO semantic role stats:\n%s",
+            format_semantic_role_stats(role_stats["role_counts"]),
+        )
+        logger.info("Wrote GO terms with unknown semantic role: %s", unknown_role_out)
+
     logger.info("Assembling GO graph metadata")
     meta = {
         "schema_version": "1.0",
@@ -101,6 +131,16 @@ def build_go_pkl(
         **frequency_metadata,
         "created_at": datetime.now(UTC).date().isoformat(),
     }
+    if role_stats is not None:
+        meta["semantic_role_assignment"] = {
+            "role_map": str(role_map),
+            "unknown_role_report": str(go_out.parent / "go_terms_unknown_role.txt"),
+            "n_processed": role_stats["processed"],
+            "n_anchor": role_stats["anchor"],
+            "n_keyword": role_stats["keyword"],
+            "n_unknown": role_stats["unknown"],
+            "role_counts": dict(role_stats["role_counts"]),
+        }
     artifact = {"meta": meta, "terms": terms}
     logger.info("Assembled GO graph metadata")
 
@@ -600,6 +640,298 @@ def write_accession_mf_go_tsv(
             if not terms:
                 continue
             handle.write(f"{accession}\t{';'.join(sorted(terms))}\n")
+
+
+def ensure_role_map_from_template(
+    role_map: Path,
+    template: Any,
+) -> bool:
+    """Create role_map from template if missing; return True when created."""
+    if role_map.exists():
+        return False
+    role_map.parent.mkdir(parents=True, exist_ok=True)
+    role_map.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    return True
+
+
+def assign_semantic_roles_from_file(
+    terms: dict[str, dict[str, Any]],
+    role_map: Path,
+    *,
+    unknown_role_out: Path,
+) -> dict[str, Any]:
+    role_config = parse_role_map(role_map)
+    return assign_semantic_roles(
+        terms,
+        role_config,
+        unknown_role_out=unknown_role_out,
+    )
+
+
+def assign_semantic_roles(
+    terms: dict[str, dict[str, Any]],
+    role_config: dict[str, dict[str, dict[str, Any]]],
+    *,
+    unknown_role_out: Path,
+) -> dict[str, Any]:
+    anchor_index = _build_anchor_index(role_config)
+    keyword_rules = _build_keyword_rules(role_config)
+    role_counts: Counter[str] = Counter()
+    stats: dict[str, Any] = {
+        "processed": 0,
+        "anchor": 0,
+        "keyword": 0,
+        "unknown": 0,
+        "role_counts": role_counts,
+    }
+    unknown_terms: list[tuple[str, str]] = []
+
+    for go_id, term in terms.items():
+        if go_id == MF_ROOT:
+            continue
+        stats["processed"] += 1
+
+        anchor_role = _semantic_role_from_anchors(go_id, term, terms, anchor_index)
+        keyword_role = _semantic_role_from_keywords(term["name"], keyword_rules)
+        role = _select_semantic_role(anchor_role, keyword_role)
+
+        if role is None:
+            stats["unknown"] += 1
+            unknown_terms.append((go_id, term["name"]))
+            term["semantic_role"] = {
+                "role": "unknown",
+                "priority": 0,
+                "source": "unknown",
+                "matched": None,
+            }
+            role_counts["unknown"] += 1
+            continue
+
+        stats[role["source"]] += 1
+        role_counts[role["role"]] += 1
+        term["semantic_role"] = {
+            "role": role["role"],
+            "priority": role["priority"],
+            "source": role["source"],
+            "matched": role["matched"],
+        }
+
+    unknown_role_out.parent.mkdir(parents=True, exist_ok=True)
+    unknown_role_out.write_text(
+        "".join(f"{go_id}: {name}\n" for go_id, name in sorted(unknown_terms)),
+        encoding="utf-8",
+    )
+    return stats
+
+
+def format_semantic_role_stats(role_counts: Counter[str] | dict[str, int]) -> str:
+    parts = [
+        f"  {role} = {format_log_number(count)}"
+        for role, count in sorted(role_counts.items())
+        if role != "unknown"
+    ]
+    if "unknown" in role_counts:
+        parts.append(f"  unknown = {format_log_number(role_counts['unknown'])}")
+    return "\n".join(parts)
+
+
+def format_semantic_role_layer_summary(role_stats: dict[str, Any]) -> str:
+    numbers = {
+        "processed": format_log_number(role_stats["processed"]),
+        "anchor": format_log_number(role_stats["anchor"]),
+        "keyword": format_log_number(role_stats["keyword"]),
+        "unknown": format_log_number(role_stats["unknown"]),
+    }
+    width = max(7, *(len(value) for value in numbers.values()))
+    return "\n".join(
+        [
+            f"  total non-root terms = {numbers['processed']:>{width}}",
+            f"  anchor assigned      = {numbers['anchor']:>{width}}",
+            f"  keyword assigned     = {numbers['keyword']:>{width}}",
+            f"  unknown              = {numbers['unknown']:>{width}}",
+        ]
+    )
+
+
+def parse_role_map(path: Path) -> dict[str, dict[str, dict[str, Any]]]:
+    """Parse the restricted role_map.yaml structure used by ProSig."""
+    config: dict[str, dict[str, dict[str, Any]]] = {
+        "roles": {},
+        "role_rules": {},
+    }
+    section: str | None = None
+    role: str | None = None
+    list_key: str | None = None
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent == 0 and stripped.endswith(":"):
+            section = stripped[:-1]
+            role = None
+            list_key = None
+            if section not in config:
+                raise ValueError(f"Unsupported role map section: {section}")
+            continue
+        if section is None:
+            raise ValueError(f"Role map entry outside a section: {stripped}")
+        if indent == 2 and stripped.endswith(":"):
+            role = stripped[:-1]
+            config[section][role] = {}
+            list_key = None
+            continue
+        if role is None:
+            raise ValueError(f"Role map field outside a role: {stripped}")
+        if indent == 4 and ":" in stripped:
+            key, value = [item.strip() for item in stripped.split(":", 1)]
+            value = _strip_yaml_inline_comment(value).strip()
+            if value:
+                config[section][role][key] = int(value) if key == "priority" else value
+                list_key = None
+            else:
+                config[section][role][key] = []
+                list_key = key
+            continue
+        if indent == 6 and stripped.startswith("- "):
+            if list_key is None:
+                raise ValueError(f"Role map list item outside a list: {stripped}")
+            config[section][role][list_key].append(_unquote_yaml_value(stripped[2:]))
+            continue
+        raise ValueError(f"Unsupported role map line: {raw_line}")
+
+    return config
+
+
+def _build_anchor_index(
+    role_config: dict[str, dict[str, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    anchor_index: dict[str, dict[str, Any]] = {}
+    for role, config in role_config["roles"].items():
+        priority = int(config.get("priority", 0))
+        for anchor in config.get("anchors", []):
+            current = anchor_index.get(anchor)
+            if current is None or priority > current["priority"]:
+                anchor_index[anchor] = {"role": role, "priority": priority}
+    return anchor_index
+
+
+def _build_keyword_rules(
+    role_config: dict[str, dict[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    rules: list[dict[str, Any]] = []
+    for section in ("roles", "role_rules"):
+        for role, config in role_config[section].items():
+            priority = int(config.get("priority", 0))
+            for keyword in config.get("keywords", []):
+                rules.append(
+                    {
+                        "role": role,
+                        "priority": priority,
+                        "keyword": keyword,
+                        "keyword_lower": keyword.lower(),
+                    }
+                )
+    return sorted(rules, key=lambda rule: rule["priority"], reverse=True)
+
+
+def _semantic_role_from_anchors(
+    go_id: str,
+    term: dict[str, Any],
+    terms: dict[str, dict[str, Any]],
+    anchor_index: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    for candidate in _rank_self_and_ancestors_by_ic(go_id, term, terms):
+        role = anchor_index.get(candidate)
+        if role is not None:
+            return {
+                "role": role["role"],
+                "priority": role["priority"],
+                "source": "anchor",
+                "matched": candidate,
+            }
+    return None
+
+
+def _semantic_role_from_keywords(
+    name: str,
+    keyword_rules: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    name_lower = name.lower()
+    for rule in keyword_rules:
+        if rule["keyword_lower"] in name_lower:
+            return {
+                "role": rule["role"],
+                "priority": rule["priority"],
+                "source": "keyword",
+                "matched": rule["keyword"],
+            }
+    return None
+
+
+def _select_semantic_role(
+    anchor_role: dict[str, Any] | None,
+    keyword_role: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if anchor_role is None:
+        return keyword_role
+    if keyword_role is None:
+        return anchor_role
+    if keyword_role["priority"] > anchor_role["priority"]:
+        return keyword_role
+    if (
+        keyword_role["priority"] == anchor_role["priority"]
+        and keyword_role["role"] != anchor_role["role"]
+    ):
+        return keyword_role
+    return anchor_role
+
+
+def _rank_self_and_ancestors_by_ic(
+    go_id: str,
+    term: dict[str, Any],
+    terms: dict[str, dict[str, Any]],
+) -> list[str]:
+    candidates = [go_id, *term.get("ancestors", set())]
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            terms.get(candidate, {}).get("ic") is not None,
+            terms.get(candidate, {}).get("ic") or float("-inf"),
+            candidate,
+        ),
+        reverse=True,
+    )
+
+
+def _unquote_yaml_value(value: str) -> str:
+    value = _strip_yaml_inline_comment(value).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _strip_yaml_inline_comment(value: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char == "#" and (index == 0 or value[index - 1].isspace()):
+            return value[:index]
+    return value
 
 
 def is_high_quality_evidence(evidence: str) -> bool:

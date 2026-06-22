@@ -32,6 +32,7 @@ def test_build_library_help_includes_planned_options() -> None:
     assert "--prosite-dat" in result.stdout
     assert "--motif-out" in result.stdout
     assert "--write-report" in result.stdout
+    assert "--role-map" in result.stdout
     assert "--namespace" not in result.stdout
     assert "--include-part-of" not in result.stdout
     assert "--ic-log-base" not in result.stdout

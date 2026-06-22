@@ -1,11 +1,19 @@
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from prosig.cli.logging import get_logger
-from prosig.go.build import MF_ROOT, build_go_pkl, format_log_number
+from prosig.go.build import (
+    MF_ROOT,
+    build_go_pkl,
+    ensure_role_map_from_template,
+    format_log_number,
+)
 from prosig.motifs.prosite import write_prosig_motif_library
+
+ROLE_MAP_TEMPLATE = files("prosig.data").joinpath("role_map.yaml.template")
 
 
 def build_library(
@@ -48,16 +56,32 @@ def build_library(
             help="Optional path to write a build validation report.",
         ),
     ] = None,
+    role_map: Annotated[
+        Path,
+        typer.Option(
+            "--role-map",
+            help=(
+                "Path to GO semantic role map. Created from the starter template "
+                "when missing."
+            ),
+        ),
+    ] = Path("role_map.yaml"),
 ) -> None:
     """Build the compact GO graph, IC artifact, and ProSig motif library."""
+    logger = get_logger()
+    if ensure_role_map_from_template(role_map, ROLE_MAP_TEMPLATE):
+        logger.info("Created starter GO semantic role map: %s", role_map)
+    else:
+        logger.info("Using GO semantic role map: %s", role_map)
+
     artifact = build_go_pkl(
         go_obo=go_obo,
         swissprot=swissprot,
         go_out=go_out,
         report_out=write_report,
+        role_map=role_map,
     )
     meta = artifact["meta"]
-    logger = get_logger()
     logger.info(
         "Wrote GO graph and IC artifact to %s with %s MF terms",
         go_out,
