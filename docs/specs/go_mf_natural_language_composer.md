@@ -150,7 +150,7 @@ Default behavior:
 
 - Load `role_map.yaml` from the working directory.
 - If the file does not exist, create it from
-  `docs/specs/templates/role_map.yaml.template`.
+  `src/prosig/data/role_map.yaml.template`.
 - Compile semantic roles into the `go_graph.pkl` term records.
 - Write unknown-role audit rows to `go_terms_unknown_role.txt` next to
   `go_graph.pkl`.
@@ -259,7 +259,7 @@ Layer 2 keyword or regex matching:
 The starter role map is stored as:
 
 ```text
-docs/specs/templates/role_map.yaml.template
+src/prosig/data/role_map.yaml.template
 ```
 
 This file is a template, not the active runtime configuration. A future
@@ -434,7 +434,7 @@ receptor activity            -> receptor
 
 Priority should come from the compiled semantic role metadata. The starting
 priority values are defined in `role_map.yaml`, initially created from
-`docs/specs/templates/role_map.yaml.template`.
+`src/prosig/data/role_map.yaml.template`.
 
 Initial head-role preference:
 
