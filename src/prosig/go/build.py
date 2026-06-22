@@ -786,6 +786,7 @@ def parse_role_map(path: Path) -> dict[str, dict[str, dict[str, Any]]]:
             raise ValueError(f"Role map field outside a role: {stripped}")
         if indent == 4 and ":" in stripped:
             key, value = [item.strip() for item in stripped.split(":", 1)]
+            value = _strip_yaml_inline_comment(value).strip()
             if value:
                 config[section][role][key] = int(value) if key == "priority" else value
                 list_key = None

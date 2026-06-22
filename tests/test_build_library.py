@@ -504,6 +504,35 @@ def test_parse_role_map_strips_inline_comments_from_list_items(tmp_path: Path) -
     assert parsed["roles"]["tagging"]["keywords"] == ["protein # tag activity"]
 
 
+def test_parse_role_map_strips_inline_comments_from_mapping_fields(
+    tmp_path: Path,
+) -> None:
+    role_map = tmp_path / "role_map.yaml"
+    role_map.write_text(
+        "\n".join(
+            [
+                "roles:",
+                "  catalytic:",
+                "    priority: 100  # highest priority",
+                "    anchors:  # anchor GO terms",
+                "      - GO:0003824",
+                "    keywords:  # keyword fallback",
+                '      - "catalytic # activity"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = parse_role_map(role_map)
+
+    assert parsed["roles"]["catalytic"] == {
+        "priority": 100,
+        "anchors": ["GO:0003824"],
+        "keywords": ["catalytic # activity"],
+    }
+
+
 def test_packaged_role_map_template_is_available() -> None:
     template = files("prosig.data").joinpath("role_map.yaml.template")
 
