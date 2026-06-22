@@ -1,3 +1,4 @@
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated
 
@@ -12,13 +13,7 @@ from prosig.go.build import (
 )
 from prosig.motifs.prosite import write_prosig_motif_library
 
-ROLE_MAP_TEMPLATE = (
-    Path(__file__).resolve().parents[3]
-    / "docs"
-    / "specs"
-    / "templates"
-    / "role_map.yaml.template"
-)
+ROLE_MAP_TEMPLATE = files("prosig.data").joinpath("role_map.yaml.template")
 
 
 def build_library(

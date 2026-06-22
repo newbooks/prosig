@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import pickle
+from importlib.resources import files
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -349,6 +350,82 @@ def test_assign_semantic_roles_uses_anchors_then_keywords(tmp_path: Path) -> Non
     assert (tmp_path / "unknown.txt").read_text(encoding="utf-8") == ""
 
 
+def test_assign_semantic_roles_refines_broad_binding_anchor(
+    tmp_path: Path,
+) -> None:
+    terms = {
+        "GO:0003674": {
+            "name": "molecular_function",
+            "ancestors": set(),
+            "ic": 0.0,
+        },
+        "GO:0005488": {
+            "name": "binding",
+            "ancestors": {"GO:0003674"},
+            "ic": 1.0,
+        },
+        "GO:0000001": {
+            "name": "heme binding",
+            "ancestors": {"GO:0005488", "GO:0003674"},
+            "ic": 2.0,
+        },
+        "GO:0000002": {
+            "name": "protein binding",
+            "ancestors": {"GO:0005488", "GO:0003674"},
+            "ic": 3.0,
+        },
+    }
+    role_map = tmp_path / "role_map.yaml"
+    role_map.write_text(
+        "\n".join(
+            [
+                "roles:",
+                "  binding:",
+                "    priority: 20",
+                "    anchors:",
+                "      - GO:0005488",
+                "  binding_cofactor:",
+                "    priority: 40",
+                "    keywords:",
+                '      - "heme binding"',
+                "  binding_generic:",
+                "    priority: 20",
+                "    keywords:",
+                '      - "protein binding"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats = assign_semantic_roles(
+        terms,
+        parse_role_map(role_map),
+        unknown_role_out=tmp_path / "unknown.txt",
+    )
+
+    assert stats["anchor"] == 1
+    assert stats["keyword"] == 2
+    assert terms["GO:0005488"]["semantic_role"] == {
+        "role": "binding",
+        "priority": 20,
+        "source": "anchor",
+        "matched": "GO:0005488",
+    }
+    assert terms["GO:0000001"]["semantic_role"] == {
+        "role": "binding_cofactor",
+        "priority": 40,
+        "source": "keyword",
+        "matched": "heme binding",
+    }
+    assert terms["GO:0000002"]["semantic_role"] == {
+        "role": "binding_generic",
+        "priority": 20,
+        "source": "keyword",
+        "matched": "protein binding",
+    }
+
+
 def test_assign_semantic_roles_accepts_grouped_role_map(tmp_path: Path) -> None:
     terms = {
         "GO:0003674": {
@@ -425,6 +502,13 @@ def test_parse_role_map_strips_inline_comments_from_list_items(tmp_path: Path) -
 
     assert parsed["roles"]["tagging"]["anchors"] == ["GO:0141047"]
     assert parsed["roles"]["tagging"]["keywords"] == ["protein # tag activity"]
+
+
+def test_packaged_role_map_template_is_available() -> None:
+    template = files("prosig.data").joinpath("role_map.yaml.template")
+
+    assert template.is_file()
+    assert "roles:" in template.read_text(encoding="utf-8")
 
 
 def test_write_accession_mf_go_tsv_uses_primary_accessions_and_hq_mf_terms(

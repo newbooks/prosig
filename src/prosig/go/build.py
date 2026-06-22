@@ -5,7 +5,6 @@ import json
 import logging
 import math
 import pickle
-import shutil
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -645,13 +644,13 @@ def write_accession_mf_go_tsv(
 
 def ensure_role_map_from_template(
     role_map: Path,
-    template: Path,
+    template: Any,
 ) -> bool:
     """Create role_map from template if missing; return True when created."""
     if role_map.exists():
         return False
     role_map.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template, role_map)
+    role_map.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
     return True
 
 
@@ -692,9 +691,9 @@ def assign_semantic_roles(
             continue
         stats["processed"] += 1
 
-        role = _semantic_role_from_anchors(go_id, term, terms, anchor_index)
-        if role is None:
-            role = _semantic_role_from_keywords(term["name"], keyword_rules)
+        anchor_role = _semantic_role_from_anchors(go_id, term, terms, anchor_index)
+        keyword_role = _semantic_role_from_keywords(term["name"], keyword_rules)
+        role = _select_semantic_role(anchor_role, keyword_role)
 
         if role is None:
             stats["unknown"] += 1
@@ -868,6 +867,24 @@ def _semantic_role_from_keywords(
                 "matched": rule["keyword"],
             }
     return None
+
+
+def _select_semantic_role(
+    anchor_role: dict[str, Any] | None,
+    keyword_role: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if anchor_role is None:
+        return keyword_role
+    if keyword_role is None:
+        return anchor_role
+    if keyword_role["priority"] > anchor_role["priority"]:
+        return keyword_role
+    if (
+        keyword_role["priority"] == anchor_role["priority"]
+        and keyword_role["role"] != anchor_role["role"]
+    ):
+        return keyword_role
+    return anchor_role
 
 
 def _rank_self_and_ancestors_by_ic(
