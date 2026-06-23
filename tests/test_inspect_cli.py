@@ -863,7 +863,7 @@ def test_inspect_function_replaces_binding_prefix_before_merging(tmp_path) -> No
         "RNA-binding",
     ]
     assert payload["summary"] == (
-        "GO:0003700;GO:0043565;GO:0003723 is annotated as a RNA-binding "
+        "GO:0003700;GO:0043565;GO:0003723 is annotated as an RNA-binding "
         "sequence-specific DNA-binding transcription factor."
     )
     assert "DNA-binding DNA-binding" not in payload["summary"]

@@ -40,6 +40,7 @@ COFACTOR_BINDING_NAMES = {
     "fad binding",
     "fmn binding",
 }
+VOWEL_SOUND_INITIALISMS = {"A", "E", "F", "H", "I", "L", "M", "N", "O", "R", "S", "X"}
 WEAK_BINDING_NAMES = {
     "binding",
     "protein binding",
@@ -415,9 +416,21 @@ def _term_int(
 
 
 def _article_for(phrase: str) -> str:
+    first_word = phrase.split(" ", 1)[0]
+    if _starts_with_vowel_sound_initialism(first_word):
+        return "an"
     if phrase[:1].lower() in {"a", "e", "i", "o", "u"}:
         return "an"
     return "a"
+
+
+def _starts_with_vowel_sound_initialism(word: str) -> bool:
+    letters = "".join(char for char in word if char.isalpha())
+    return (
+        len(letters) >= 2
+        and letters[:2].isupper()
+        and letters[0] in VOWEL_SOUND_INITIALISMS
+    )
 
 
 def _join_phrases(phrases: tuple[str, ...]) -> str:
