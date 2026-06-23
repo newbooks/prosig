@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from prosig.go.build import MF_ROOT
+from prosig.go.describe import describe_go_function
 from prosig.go.similarity import (
     GoBestMatch,
     GoSetSimilarityResult,
@@ -208,6 +209,86 @@ def go_set_sim(
     typer.echo(_format_go_set_sim_verbose(similarity, result))
 
 
+@inspect_app.command(name="function")
+def function(
+    query: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Accession or MF GO set. Quote GO set expressions in the shell, "
+                "e.g. 'GO:0004672;GO:0005524'."
+            )
+        ),
+    ],
+    go_graph: Annotated[
+        Path,
+        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
+    ] = Path("go_graph.pkl"),
+    accession_go: Annotated[
+        Path,
+        typer.Option(
+            "--accession-go",
+            help="Path to accession_mf_go.tsv from build-library.",
+        ),
+    ] = Path("accession_mf_go.tsv"),
+    max_modifiers: Annotated[
+        int,
+        typer.Option(
+            "--max-modifiers",
+            min=0,
+            help="Maximum number of binding modifiers in the composed summary.",
+        ),
+    ] = 3,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show resolved GO terms and composition diagnostics.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write function description as JSON."),
+    ] = False,
+) -> None:
+    """Describe function from an accession or MF GO term set."""
+    similarity = _load_go_similarity(go_graph)
+    terms = _resolve_go_set_query(query, accession_go)
+    result = describe_go_function(
+        query,
+        terms,
+        similarity.terms,
+        max_modifiers=max_modifiers,
+    )
+
+    if json_output:
+        typer.echo(json.dumps(result.asdict(), indent=2, sort_keys=True))
+        return
+
+    if not verbose:
+        typer.echo(result.summary)
+        return
+
+    typer.echo(f"Query: {query}")
+    if not is_go_term_set_input(query):
+        typer.echo(f"Resolved terms: {';'.join(terms)}")
+    typer.echo("")
+    typer.echo("GO terms:")
+    for term in result.terms:
+        suffix_parts = []
+        if term.role:
+            suffix_parts.append(f"role={term.role}")
+        if term.dropped:
+            suffix_parts.append("dropped=ancestor")
+        if term.missing:
+            suffix_parts.append("missing")
+        suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+        typer.echo(f"- {term.go_id} {term.name}{suffix}")
+    typer.echo("")
+    typer.echo(f"Function: {result.summary}")
+
+
 def _resolve_go_set_queries(
     set1: str,
     set2: str,
@@ -228,6 +309,23 @@ def _resolve_go_set_queries(
             resolve_go_set_query(set1, accession_terms),
             resolve_go_set_query(set2, accession_terms),
         )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _resolve_go_set_query(query: str, accession_go: Path) -> tuple[str, ...]:
+    accession_terms: dict[str, tuple[str, ...]] = {}
+    if not is_go_term_set_input(query):
+        try:
+            accession_terms = load_accession_mf_go_terms(accession_go)
+        except FileNotFoundError as exc:
+            raise typer.BadParameter(
+                f"accession GO file not found: {accession_go}"
+            ) from exc
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    try:
+        return resolve_go_set_query(query, accession_terms)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
