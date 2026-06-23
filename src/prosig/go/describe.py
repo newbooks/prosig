@@ -40,6 +40,20 @@ COFACTOR_BINDING_NAMES = {
     "fad binding",
     "fmn binding",
 }
+CATALYTIC_ACTIVITY_KEYWORDS = {
+    "catalytic activity",
+    "oxidoreductase activity",
+    "transferase activity",
+    "hydrolase activity",
+    "lyase activity",
+    "isomerase activity",
+    "ligase activity",
+    "kinase activity",
+    "phosphatase activity",
+    "monooxygenase activity",
+    "helicase activity",
+    "atpase activity",
+}
 VOWEL_SOUND_INITIALISMS = {"A", "E", "F", "H", "I", "L", "M", "N", "O", "R", "S", "X"}
 WEAK_BINDING_NAMES = {
     "binding",
@@ -376,9 +390,13 @@ def _term_role(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> str:
         return "binding_nucleic_acid"
     if "binding" in name:
         return "binding_generic"
-    if name.endswith(" activity"):
+    if _contains_catalytic_activity_keyword(name):
         return "catalytic"
     return "unknown"
+
+
+def _contains_catalytic_activity_keyword(name: str) -> bool:
+    return any(keyword in name for keyword in CATALYTIC_ACTIVITY_KEYWORDS)
 
 
 def _term_priority(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> int:

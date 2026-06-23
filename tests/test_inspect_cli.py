@@ -75,6 +75,7 @@ def _write_function_go_graph(path) -> None:
                     "GO:0003700",
                     "GO:0004497",
                     "GO:0016705",
+                    "GO:0060089",
                 ],
                 "ancestors": set(),
                 "depth": 0,
@@ -247,6 +248,21 @@ def _write_function_go_graph(path) -> None:
                     "priority": 100,
                     "source": "keyword",
                     "matched": "oxidoreductase activity",
+                },
+            },
+            "GO:0060089": {
+                "name": "molecular transducer activity",
+                "parents": ["GO:0003674"],
+                "children": [],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.05,
+                "ic": 8.0,
+                "semantic_role": {
+                    "role": "signal_transduction",
+                    "priority": 85,
+                    "source": "anchor",
+                    "matched": "GO:0060089",
                 },
             },
         },
@@ -782,6 +798,34 @@ def test_inspect_function_fallback_checks_specific_roles_before_binding(
     assert payload["summary"] == (
         "GO:0003700;GO:0043565 is annotated as a sequence-specific "
         "DNA-binding transcription factor."
+    )
+
+
+def test_inspect_function_fallback_unknown_for_unmatched_activity(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    _strip_semantic_roles(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0060089",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0004672"
+    assert payload["terms"][1]["role"] == "unknown"
+    assert payload["supporting_terms"] == ["molecular transducer"]
+    assert payload["summary"] == (
+        "GO:0004672;GO:0060089 is annotated as a protein kinase "
+        "with molecular transducer activity."
     )
 
 
