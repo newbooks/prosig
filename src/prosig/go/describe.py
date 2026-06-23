@@ -13,20 +13,6 @@ BINDING_ROLES = {
     "binding_nucleic_acid",
     "binding_generic",
 }
-HEAD_ROLE_ORDER = {
-    "catalytic": 0,
-    "transporter": 1,
-    "receptor": 2,
-    "transcription_factor": 3,
-    "regulator": 4,
-    "structural": 5,
-    "motor": 6,
-    "binding_cofactor": 7,
-    "binding_nucleic_acid": 8,
-    "binding_generic": 9,
-    "binding": 10,
-    "unknown": 11,
-}
 WEAK_BINDING_NAMES = {
     "binding",
     "protein binding",
@@ -154,7 +140,7 @@ def _select_head(
     return min(
         go_terms,
         key=lambda go_id: (
-            HEAD_ROLE_ORDER.get(_term_role(go_id, go_graph_terms), 99),
+            -_term_priority(go_id, go_graph_terms),
             -_term_float(go_id, go_graph_terms, "ic"),
             -_term_int(go_id, go_graph_terms, "depth"),
             -len(_term_name(go_id, go_graph_terms)),
@@ -177,7 +163,7 @@ def _binding_modifiers(
     for go_id in sorted(
         (term for term in go_terms if term not in skip),
         key=lambda term: (
-            HEAD_ROLE_ORDER.get(_term_role(term, go_graph_terms), 99),
+            -_term_priority(term, go_graph_terms),
             -_term_float(term, go_graph_terms, "ic"),
             -_term_int(term, go_graph_terms, "depth"),
             term,
@@ -283,6 +269,18 @@ def _term_role(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> str:
     if name.endswith(" activity"):
         return "catalytic"
     return "unknown"
+
+
+def _term_priority(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> int:
+    term = go_graph_terms.get(go_id)
+    if term is None:
+        return 0
+    semantic_role = term.get("semantic_role")
+    if isinstance(semantic_role, dict):
+        priority = semantic_role.get("priority")
+        if isinstance(priority, int):
+            return priority
+    return 0
 
 
 def _term_float(

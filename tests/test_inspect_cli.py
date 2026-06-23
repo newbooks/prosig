@@ -68,7 +68,7 @@ def _write_function_go_graph(path) -> None:
             "GO:0003674": {
                 "name": "molecular_function",
                 "parents": [],
-                "children": ["GO:0016740", "GO:0005488"],
+                "children": ["GO:0016740", "GO:0005488", "GO:0044183"],
                 "ancestors": set(),
                 "depth": 0,
                 "freq": 1.0,
@@ -129,7 +129,7 @@ def _write_function_go_graph(path) -> None:
                 "ic": 3.0,
                 "semantic_role": {
                     "role": "binding_cofactor",
-                    "priority": 80,
+                    "priority": 40,
                     "source": "keyword",
                     "matched": "ATP",
                 },
@@ -144,9 +144,24 @@ def _write_function_go_graph(path) -> None:
                 "ic": 2.5,
                 "semantic_role": {
                     "role": "binding_cofactor",
-                    "priority": 80,
+                    "priority": 40,
                     "source": "keyword",
                     "matched": "magnesium",
+                },
+            },
+            "GO:0044183": {
+                "name": "protein folding chaperone",
+                "parents": ["GO:0003674"],
+                "children": [],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.15,
+                "ic": 2.0,
+                "semantic_role": {
+                    "role": "chaperone",
+                    "priority": 75,
+                    "source": "anchor",
+                    "matched": "GO:0044183",
                 },
             },
         },
@@ -557,6 +572,31 @@ def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert result.stdout == "GO:0004672;GO:0005524;GO:0000287 is annotated as a protein kinase.\n"
+
+
+def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0044183;GO:0005524",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0044183"
+    assert payload["modifiers"] == ["ATP-binding"]
+    assert payload["summary"] == (
+        "GO:0044183;GO:0005524 is annotated as an ATP-binding protein folding chaperone."
+    )
 
 
 def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
