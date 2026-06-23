@@ -255,6 +255,15 @@ def _write_function_go_graph(path) -> None:
         pickle.dump(artifact, handle)
 
 
+def _strip_semantic_roles(path) -> None:
+    with path.open("rb") as handle:
+        artifact = pickle.load(handle)
+    for term in artifact["terms"].values():
+        term.pop("semantic_role", None)
+    with path.open("wb") as handle:
+        pickle.dump(artifact, handle)
+
+
 def test_inspect_help_lists_diagnostic_commands() -> None:
     result = CliRunner().invoke(app, ["inspect", "-h"])
 
@@ -710,6 +719,69 @@ def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None
     assert payload["summary"] == (
         "GO:0044183;GO:0005524 is annotated as an ATP-binding "
         "protein folding chaperone."
+    )
+
+
+def test_inspect_function_uses_fallback_role_priority_for_legacy_graph(
+    tmp_path,
+) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    _strip_semantic_roles(go_graph)
+    with go_graph.open("rb") as handle:
+        artifact = pickle.load(handle)
+    artifact["terms"]["GO:0005524"]["ic"] = 10.0
+    with go_graph.open("wb") as handle:
+        pickle.dump(artifact, handle)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0005524",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0004672"
+    assert payload["modifiers"] == ["ATP-binding"]
+    assert payload["summary"] == (
+        "GO:0004672;GO:0005524 is annotated as an ATP-binding protein kinase."
+    )
+
+
+def test_inspect_function_fallback_checks_specific_roles_before_binding(
+    tmp_path,
+) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    _strip_semantic_roles(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0003700;GO:0043565",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0003700"
+    assert payload["terms"][0]["role"] == "transcription_factor"
+    assert payload["modifiers"] == ["sequence-specific DNA-binding"]
+    assert payload["summary"] == (
+        "GO:0003700;GO:0043565 is annotated as a sequence-specific "
+        "DNA-binding transcription factor."
     )
 
 

@@ -14,6 +14,32 @@ BINDING_ROLES = {
     "binding_nucleic_acid",
     "binding_generic",
 }
+FALLBACK_ROLE_PRIORITIES = {
+    "unknown": 0,
+    "binding": 20,
+    "binding_generic": 20,
+    "binding_cofactor": 40,
+    "binding_nucleic_acid": 45,
+    "structural": 60,
+    "motor": 65,
+    "regulator": 70,
+    "chaperone": 75,
+    "receptor": 80,
+    "transcription_factor": 85,
+    "transporter": 90,
+    "catalytic": 100,
+}
+COFACTOR_BINDING_NAMES = {
+    "heme binding",
+    "iron ion binding",
+    "zinc ion binding",
+    "magnesium ion binding",
+    "calcium ion binding",
+    "atp binding",
+    "nad binding",
+    "fad binding",
+    "fmn binding",
+}
 WEAK_BINDING_NAMES = {
     "binding",
     "protein binding",
@@ -324,15 +350,31 @@ def _term_role(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> str:
     semantic_role = term.get("semantic_role")
     if isinstance(semantic_role, dict) and semantic_role.get("role"):
         return str(semantic_role["role"])
-    name = _term_name(go_id, go_graph_terms)
-    if "binding" in name:
-        return "binding_generic"
+    name = _term_name(go_id, go_graph_terms).lower()
     if "transcription factor" in name:
         return "transcription_factor"
     if "transporter" in name:
         return "transporter"
     if "receptor" in name:
         return "receptor"
+    if "chaperone" in name:
+        return "chaperone"
+    if "regulator" in name:
+        return "regulator"
+    if "structural" in name:
+        return "structural"
+    if "motor" in name:
+        return "motor"
+    if name in COFACTOR_BINDING_NAMES:
+        return "binding_cofactor"
+    if (
+        "dna binding" in name
+        or "rna binding" in name
+        or "nucleic acid binding" in name
+    ):
+        return "binding_nucleic_acid"
+    if "binding" in name:
+        return "binding_generic"
     if name.endswith(" activity"):
         return "catalytic"
     return "unknown"
@@ -347,7 +389,7 @@ def _term_priority(go_id: str, go_graph_terms: dict[str, dict[str, Any]]) -> int
         priority = semantic_role.get("priority")
         if isinstance(priority, int):
             return priority
-    return 0
+    return FALLBACK_ROLE_PRIORITIES.get(_term_role(go_id, go_graph_terms), 0)
 
 
 def _term_float(
