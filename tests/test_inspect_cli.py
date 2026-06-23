@@ -1,3 +1,4 @@
+import json
 import pickle
 
 from typer.testing import CliRunner
@@ -56,6 +57,104 @@ def _write_go_graph(path) -> None:
         pickle.dump(artifact, handle)
 
 
+def _write_function_go_graph(path) -> None:
+    artifact = {
+        "meta": {
+            "schema_version": "1.0",
+            "namespace": "molecular_function",
+            "created_at": "2026-06-21",
+        },
+        "terms": {
+            "GO:0003674": {
+                "name": "molecular_function",
+                "parents": [],
+                "children": ["GO:0016740", "GO:0005488"],
+                "ancestors": set(),
+                "depth": 0,
+                "freq": 1.0,
+                "ic": 0.0,
+            },
+            "GO:0016740": {
+                "name": "transferase activity",
+                "parents": ["GO:0003674"],
+                "children": ["GO:0004672"],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.4,
+                "ic": 1.0,
+                "semantic_role": {
+                    "role": "catalytic",
+                    "priority": 100,
+                    "source": "anchor",
+                    "matched": "GO:0003824",
+                },
+            },
+            "GO:0004672": {
+                "name": "protein kinase activity",
+                "parents": ["GO:0016740"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0016740"},
+                "depth": 2,
+                "freq": 0.1,
+                "ic": 4.0,
+                "semantic_role": {
+                    "role": "catalytic",
+                    "priority": 100,
+                    "source": "anchor",
+                    "matched": "GO:0003824",
+                },
+            },
+            "GO:0005488": {
+                "name": "binding",
+                "parents": ["GO:0003674"],
+                "children": ["GO:0005524", "GO:0000287"],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.5,
+                "ic": 0.5,
+                "semantic_role": {
+                    "role": "binding",
+                    "priority": 10,
+                    "source": "anchor",
+                    "matched": "GO:0005488",
+                },
+            },
+            "GO:0005524": {
+                "name": "ATP binding",
+                "parents": ["GO:0005488"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0005488"},
+                "depth": 2,
+                "freq": 0.2,
+                "ic": 3.0,
+                "semantic_role": {
+                    "role": "binding_cofactor",
+                    "priority": 80,
+                    "source": "keyword",
+                    "matched": "ATP",
+                },
+            },
+            "GO:0000287": {
+                "name": "magnesium ion binding",
+                "parents": ["GO:0005488"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0005488"},
+                "depth": 2,
+                "freq": 0.25,
+                "ic": 2.5,
+                "semantic_role": {
+                    "role": "binding_cofactor",
+                    "priority": 80,
+                    "source": "keyword",
+                    "matched": "magnesium",
+                },
+            },
+        },
+    }
+    with path.open("wb") as handle:
+        pickle.dump(artifact, handle)
+
+
 def test_inspect_help_lists_diagnostic_commands() -> None:
     result = CliRunner().invoke(app, ["inspect", "-h"])
 
@@ -64,6 +163,7 @@ def test_inspect_help_lists_diagnostic_commands() -> None:
     assert "go-term" in result.stdout
     assert "go-sim" in result.stdout
     assert "go-set-sim" in result.stdout
+    assert "function" in result.stdout
     assert "go-similarity" not in result.stdout
 
 
@@ -383,3 +483,121 @@ def test_inspect_go_set_sim_verbose_expands_accession_query(tmp_path) -> None:
     assert "A query: P00001 (GO:0000002;GO:0000003)" in result.stdout
     assert "A expanded terms:" not in result.stdout
     assert "B query: (GO:0000002)" in result.stdout
+
+
+def test_inspect_function_describes_direct_go_set(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0005524;GO:0000287;GO:0016740",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        result.stdout
+        == "GO:0004672;GO:0005524;GO:0000287;GO:0016740 is annotated "
+        "as an ATP- and magnesium-binding protein kinase with transferase "
+        "activity.\n"
+    )
+
+
+def test_inspect_function_describes_accession(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    _write_function_go_graph(go_graph)
+    accession_go.write_text(
+        "P00001\tGO:0004672;GO:0005524;GO:0000287\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "P00001",
+            "--go-graph",
+            str(go_graph),
+            "--accession-go",
+            str(accession_go),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        result.stdout
+        == "P00001 is annotated as an ATP- and magnesium-binding protein kinase.\n"
+    )
+
+
+def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    _write_function_go_graph(go_graph)
+    accession_go.write_text(
+        "P00001\tGO:0004672;GO:0005524;GO:0000287;GO:0016740\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "P00001",
+            "--go-graph",
+            str(go_graph),
+            "--accession-go",
+            str(accession_go),
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Query: P00001" in result.stdout
+    assert "Resolved terms: GO:0004672;GO:0005524;GO:0000287;GO:0016740" in result.stdout
+    assert "GO terms:" in result.stdout
+    assert "- GO:0004672 protein kinase activity (role=catalytic)" in result.stdout
+    assert "- GO:0005524 ATP binding (role=binding_cofactor)" in result.stdout
+    assert "- GO:0000287 magnesium ion binding (role=binding_cofactor)" in result.stdout
+    assert (
+        "- GO:0016740 transferase activity (role=catalytic, dropped=ancestor)"
+        in result.stdout
+    )
+    assert (
+        "Function: P00001 is annotated as an ATP- and magnesium-binding "
+        "protein kinase with transferase activity."
+    ) in result.stdout
+
+
+def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0005524",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0004672"
+    assert payload["modifiers"] == ["ATP-binding"]
+    assert payload["summary"] == (
+        "GO:0004672;GO:0005524 is annotated as an ATP-binding protein kinase."
+    )
