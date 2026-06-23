@@ -215,7 +215,7 @@ def _supporting_terms(
         role = _term_role(go_id, go_graph_terms)
         if role in BINDING_ROLES:
             continue
-        phrase = _head_phrase(_term_name(go_id, go_graph_terms))
+        phrase = _support_phrase(_term_name(go_id, go_graph_terms))
         if phrase and phrase not in supporting:
             supporting.append(phrase)
     return tuple(supporting)
@@ -249,6 +249,13 @@ def _head_phrase(name: str) -> str:
         if name.endswith(suffix):
             return name[: -len(suffix)].strip()
     return name
+
+
+def _support_phrase(name: str) -> str:
+    phrase = _head_phrase(name)
+    if " activity," in phrase:
+        return phrase.split(" activity,", 1)[0].strip()
+    return phrase
 
 
 def _compose_noun_phrase(head_phrase: str, modifiers: tuple[str, ...]) -> str:

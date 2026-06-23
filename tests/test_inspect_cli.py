@@ -217,7 +217,10 @@ def _write_function_go_graph(path) -> None:
                 },
             },
             "GO:0016705": {
-                "name": "oxidoreductase activity",
+                "name": (
+                    "oxidoreductase activity, acting on paired donors, with "
+                    "incorporation or reduction of molecular oxygen"
+                ),
                 "parents": ["GO:0003674"],
                 "children": [],
                 "ancestors": {"GO:0003674"},
@@ -719,6 +722,7 @@ def test_inspect_function_keeps_non_head_activity_as_support(tmp_path) -> None:
         "GO:0004497;GO:0016705 is annotated as a monooxygenase "
         "with oxidoreductase activity."
     )
+    assert "molecular oxygen activity" not in payload["summary"]
 
 
 def test_inspect_function_replaces_binding_prefix_in_head(tmp_path) -> None:
