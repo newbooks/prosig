@@ -174,7 +174,7 @@ def _write_function_go_graph(path) -> None:
             "GO:0003700": {
                 "name": "DNA-binding transcription factor activity",
                 "parents": ["GO:0003674"],
-                "children": ["GO:0043565"],
+                "children": ["GO:0043565", "GO:0003723"],
                 "ancestors": {"GO:0003674"},
                 "depth": 1,
                 "freq": 0.12,
@@ -199,6 +199,21 @@ def _write_function_go_graph(path) -> None:
                     "priority": 45,
                     "source": "keyword",
                     "matched": "DNA binding",
+                },
+            },
+            "GO:0003723": {
+                "name": "RNA binding",
+                "parents": ["GO:0003700"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0003700"},
+                "depth": 2,
+                "freq": 0.1,
+                "ic": 3.2,
+                "semantic_role": {
+                    "role": "binding_nucleic_acid",
+                    "priority": 45,
+                    "source": "keyword",
+                    "matched": "RNA binding",
                 },
             },
             "GO:0004497": {
@@ -750,6 +765,40 @@ def test_inspect_function_replaces_binding_prefix_in_head(tmp_path) -> None:
         "DNA-binding transcription factor."
     )
     assert "DNA-binding DNA-binding" not in payload["summary"]
+
+
+def test_inspect_function_replaces_binding_prefix_before_merging(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0003700;GO:0043565;GO:0003723",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0003700"
+    assert payload["modifiers"] == [
+        "sequence-specific DNA-binding",
+        "RNA-binding",
+    ]
+    assert payload["summary"] == (
+        "GO:0003700;GO:0043565;GO:0003723 is annotated as a RNA-binding "
+        "sequence-specific DNA-binding transcription factor."
+    )
+    assert "DNA-binding DNA-binding" not in payload["summary"]
+    assert (
+        "sequence-specific DNA- and RNA-binding DNA-binding"
+        not in payload["summary"]
+    )
 
 
 def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:

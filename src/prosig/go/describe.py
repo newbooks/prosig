@@ -259,16 +259,16 @@ def _support_phrase(name: str) -> str:
 
 
 def _compose_noun_phrase(head_phrase: str, modifiers: tuple[str, ...]) -> str:
-    merged_modifiers = _merge_binding_modifiers(modifiers)
     head_with_replacement = head_phrase
     remaining_modifiers: list[str] = []
-    for modifier in merged_modifiers:
+    for modifier in modifiers:
         replaced = _replace_head_binding_prefix(head_with_replacement, modifier)
         if replaced != head_with_replacement:
             head_with_replacement = replaced
         else:
             remaining_modifiers.append(modifier)
-    return " ".join((*remaining_modifiers, head_with_replacement)).strip()
+    merged_modifiers = _merge_binding_modifiers(tuple(remaining_modifiers))
+    return " ".join((*merged_modifiers, head_with_replacement)).strip()
 
 
 def _replace_head_binding_prefix(head_phrase: str, modifier: str) -> str:
