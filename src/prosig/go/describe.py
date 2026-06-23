@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -125,10 +126,28 @@ def _dropped_ancestor_terms(
         for other_id in go_terms:
             if other_id == go_id:
                 continue
-            if go_id in go_graph_terms.get(other_id, {}).get("ancestors", ()):
-                dropped.append(go_id)
-                break
+            if go_id not in go_graph_terms.get(other_id, {}).get("ancestors", ()):
+                continue
+            if _should_keep_ancestor(go_id, other_id, go_graph_terms):
+                continue
+            dropped.append(go_id)
+            break
     return tuple(dict.fromkeys(dropped))
+
+
+def _should_keep_ancestor(
+    ancestor: str,
+    descendant: str,
+    go_graph_terms: dict[str, dict[str, Any]],
+) -> bool:
+    ancestor_role = _term_role(ancestor, go_graph_terms)
+    descendant_role = _term_role(descendant, go_graph_terms)
+    return (
+        descendant_role in BINDING_ROLES
+        and ancestor_role not in BINDING_ROLES
+        and _term_priority(ancestor, go_graph_terms)
+        > _term_priority(descendant, go_graph_terms)
+    )
 
 
 def _select_head(
@@ -206,7 +225,7 @@ def _compose_sentence(
     modifiers: tuple[str, ...],
     supporting_terms: tuple[str, ...],
 ) -> str:
-    noun_phrase = " ".join((*_merge_binding_modifiers(modifiers), head_phrase)).strip()
+    noun_phrase = _compose_noun_phrase(head_phrase, modifiers)
     article = _article_for(noun_phrase)
     sentence = f"{query} is annotated as {article} {noun_phrase}"
     if supporting_terms:
@@ -228,6 +247,45 @@ def _head_phrase(name: str) -> str:
         if name.endswith(suffix):
             return name[: -len(suffix)].strip()
     return name
+
+
+def _compose_noun_phrase(head_phrase: str, modifiers: tuple[str, ...]) -> str:
+    merged_modifiers = _merge_binding_modifiers(modifiers)
+    head_with_replacement = head_phrase
+    remaining_modifiers: list[str] = []
+    for modifier in merged_modifiers:
+        replaced = _replace_head_binding_prefix(head_with_replacement, modifier)
+        if replaced != head_with_replacement:
+            head_with_replacement = replaced
+        else:
+            remaining_modifiers.append(modifier)
+    return " ".join((*remaining_modifiers, head_with_replacement)).strip()
+
+
+def _replace_head_binding_prefix(head_phrase: str, modifier: str) -> str:
+    if not modifier.endswith("-binding"):
+        return head_phrase
+    words = head_phrase.split(" ", 1)
+    if not words or not words[0].endswith("-binding"):
+        return head_phrase
+
+    head_prefix = words[0]
+    modifier_tokens = _binding_stem_tokens(modifier)
+    head_tokens = _binding_stem_tokens(head_prefix)
+    if not _is_suffix_sequence(modifier_tokens, head_tokens):
+        return head_phrase
+
+    suffix = f" {words[1]}" if len(words) > 1 else ""
+    return f"{modifier}{suffix}"
+
+
+def _binding_stem_tokens(binding_phrase: str) -> list[str]:
+    stem = binding_phrase.removesuffix("-binding")
+    return [token.lower() for token in re.split(r"[-\s]+", stem) if token]
+
+
+def _is_suffix_sequence(tokens: list[str], suffix: list[str]) -> bool:
+    return len(tokens) >= len(suffix) and tokens[-len(suffix) :] == suffix
 
 
 def _merge_binding_modifiers(modifiers: tuple[str, ...]) -> tuple[str, ...]:
