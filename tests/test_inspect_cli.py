@@ -76,6 +76,7 @@ def _write_function_go_graph(path) -> None:
                     "GO:0004497",
                     "GO:0016705",
                     "GO:0060089",
+                    "GO:0005515",
                 ],
                 "ancestors": set(),
                 "depth": 0,
@@ -140,6 +141,21 @@ def _write_function_go_graph(path) -> None:
                     "priority": 40,
                     "source": "keyword",
                     "matched": "ATP",
+                },
+            },
+            "GO:0005515": {
+                "name": "protein binding",
+                "parents": ["GO:0005488"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0005488"},
+                "depth": 2,
+                "freq": 0.3,
+                "ic": 2.0,
+                "semantic_role": {
+                    "role": "binding_generic",
+                    "priority": 20,
+                    "source": "keyword",
+                    "matched": "protein binding",
                 },
             },
             "GO:0000287": {
@@ -660,6 +676,44 @@ def test_inspect_function_describes_accession(tmp_path) -> None:
         result.stdout
         == "P00001 is annotated as an ATP- and magnesium-binding protein kinase.\n"
     )
+
+
+def test_inspect_function_omits_article_for_binding_only_head(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0005515",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "GO:0005515 is annotated as protein binding.\n"
+
+
+def test_inspect_function_omits_article_for_cofactor_binding_head(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0005524",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "GO:0005524 is annotated as ATP binding.\n"
 
 
 def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:

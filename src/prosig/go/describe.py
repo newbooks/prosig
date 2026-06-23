@@ -269,8 +269,11 @@ def _compose_sentence(
     supporting_terms: tuple[str, ...],
 ) -> str:
     noun_phrase = _compose_noun_phrase(head_phrase, modifiers)
-    article = _article_for(noun_phrase)
-    sentence = f"{query} is annotated as {article} {noun_phrase}"
+    if _needs_article(noun_phrase):
+        article = _article_for(noun_phrase)
+        sentence = f"{query} is annotated as {article} {noun_phrase}"
+    else:
+        sentence = f"{query} is annotated as {noun_phrase}"
     if supporting_terms:
         sentence += f" with {_join_phrases(supporting_terms)} activity"
     return f"{sentence}."
@@ -440,6 +443,10 @@ def _article_for(phrase: str) -> str:
     if phrase[:1].lower() in {"a", "e", "i", "o", "u"}:
         return "an"
     return "a"
+
+
+def _needs_article(noun_phrase: str) -> bool:
+    return not noun_phrase.endswith(" binding")
 
 
 def _starts_with_vowel_sound_initialism(word: str) -> bool:
