@@ -100,7 +100,7 @@ def describe_go_function(
     )
     head_phrase = _head_phrase(_term_name(head, go_graph_terms))
     supporting_terms = _supporting_terms(
-        valid_terms,
+        candidate_terms,
         go_graph_terms,
         skip={head},
     )

@@ -586,8 +586,7 @@ def test_inspect_function_describes_direct_go_set(tmp_path) -> None:
     assert (
         result.stdout
         == "GO:0004672;GO:0005524;GO:0000287;GO:0016740 is annotated "
-        "as an ATP- and magnesium-binding protein kinase with transferase "
-        "activity.\n"
+        "as an ATP- and magnesium-binding protein kinase.\n"
     )
 
 
@@ -641,6 +640,32 @@ def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
     assert result.stdout == (
         "GO:0004672;GO:0005524;GO:0000287 is annotated as "
         "a protein kinase.\n"
+    )
+
+
+def test_inspect_function_excludes_dropped_ancestors_from_support(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0016740",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0004672"
+    assert payload["dropped_terms"] == ["GO:0016740"]
+    assert payload["supporting_terms"] == []
+    assert payload["summary"] == (
+        "GO:0004672;GO:0016740 is annotated as a protein kinase."
     )
 
 
@@ -762,7 +787,7 @@ def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
     )
     assert (
         "Function: P00001 is annotated as an ATP- and magnesium-binding "
-        "protein kinase with transferase activity."
+        "protein kinase."
     ) in result.stdout
 
 
