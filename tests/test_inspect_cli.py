@@ -538,6 +538,27 @@ def test_inspect_function_describes_accession(tmp_path) -> None:
     )
 
 
+def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004672;GO:0005524;GO:0000287",
+            "--go-graph",
+            str(go_graph),
+            "--max-modifiers",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "GO:0004672;GO:0005524;GO:0000287 is annotated as a protein kinase.\n"
+
+
 def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     accession_go = tmp_path / "accession_mf_go.tsv"

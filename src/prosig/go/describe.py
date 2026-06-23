@@ -170,6 +170,9 @@ def _binding_modifiers(
     skip: set[str],
     max_modifiers: int,
 ) -> tuple[str, ...]:
+    if max_modifiers <= 0:
+        return ()
+
     modifiers: list[str] = []
     for go_id in sorted(
         (term for term in go_terms if term not in skip),
