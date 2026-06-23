@@ -73,6 +73,8 @@ def _write_function_go_graph(path) -> None:
                     "GO:0005488",
                     "GO:0044183",
                     "GO:0003700",
+                    "GO:0004497",
+                    "GO:0016705",
                 ],
                 "ancestors": set(),
                 "depth": 0,
@@ -197,6 +199,36 @@ def _write_function_go_graph(path) -> None:
                     "priority": 45,
                     "source": "keyword",
                     "matched": "DNA binding",
+                },
+            },
+            "GO:0004497": {
+                "name": "monooxygenase activity",
+                "parents": ["GO:0003674"],
+                "children": [],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.07,
+                "ic": 5.0,
+                "semantic_role": {
+                    "role": "catalytic",
+                    "priority": 100,
+                    "source": "keyword",
+                    "matched": "monooxygenase activity",
+                },
+            },
+            "GO:0016705": {
+                "name": "oxidoreductase activity",
+                "parents": ["GO:0003674"],
+                "children": [],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": 0.09,
+                "ic": 4.0,
+                "semantic_role": {
+                    "role": "catalytic",
+                    "priority": 100,
+                    "source": "keyword",
+                    "matched": "oxidoreductase activity",
                 },
             },
         },
@@ -606,7 +638,10 @@ def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
     )
 
     assert result.exit_code == 0
-    assert result.stdout == "GO:0004672;GO:0005524;GO:0000287 is annotated as a protein kinase.\n"
+    assert result.stdout == (
+        "GO:0004672;GO:0005524;GO:0000287 is annotated as "
+        "a protein kinase.\n"
+    )
 
 
 def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None:
@@ -630,7 +665,34 @@ def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None
     assert payload["head"] == "GO:0044183"
     assert payload["modifiers"] == ["ATP-binding"]
     assert payload["summary"] == (
-        "GO:0044183;GO:0005524 is annotated as an ATP-binding protein folding chaperone."
+        "GO:0044183;GO:0005524 is annotated as an ATP-binding "
+        "protein folding chaperone."
+    )
+
+
+def test_inspect_function_keeps_non_head_activity_as_support(tmp_path) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "GO:0004497;GO:0016705",
+            "--go-graph",
+            str(go_graph),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["head"] == "GO:0004497"
+    assert payload["supporting_terms"] == ["oxidoreductase"]
+    assert payload["summary"] == (
+        "GO:0004497;GO:0016705 is annotated as a monooxygenase "
+        "with oxidoreductase activity."
     )
 
 
@@ -686,7 +748,10 @@ def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "Query: P00001" in result.stdout
-    assert "Resolved terms: GO:0004672;GO:0005524;GO:0000287;GO:0016740" in result.stdout
+    assert (
+        "Resolved terms: GO:0004672;GO:0005524;GO:0000287;GO:0016740"
+        in result.stdout
+    )
     assert "GO terms:" in result.stdout
     assert "- GO:0004672 protein kinase activity (role=catalytic)" in result.stdout
     assert "- GO:0005524 ATP binding (role=binding_cofactor)" in result.stdout

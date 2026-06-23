@@ -63,7 +63,9 @@ def describe_go_function(
     valid_terms = tuple(go_id for go_id in ordered_terms if go_id in go_graph_terms)
     dropped_terms = _dropped_ancestor_terms(valid_terms, go_graph_terms)
     candidate_terms = tuple(
-        go_id for go_id in valid_terms if go_id not in dropped_terms and go_id != MF_ROOT
+        go_id
+        for go_id in valid_terms
+        if go_id not in dropped_terms and go_id != MF_ROOT
     )
 
     term_rows = tuple(
@@ -100,7 +102,7 @@ def describe_go_function(
     supporting_terms = _supporting_terms(
         valid_terms,
         go_graph_terms,
-        skip={head, *candidate_terms},
+        skip={head},
     )
     summary = _compose_sentence(query, head_phrase, modifiers, supporting_terms)
     return GoFunctionDescription(
