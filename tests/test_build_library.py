@@ -2,6 +2,7 @@ import gzip
 import json
 import logging
 import math
+import os
 import pickle
 from importlib.resources import files
 from pathlib import Path
@@ -193,6 +194,10 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     assert not Path("go_frequency_metadata.tsv").exists()
     assert Path("excluded_mf_annotations.tsv").exists()
     assert Path("accession_mf_go.tsv").exists()
+    assert Path("go_clusters.tsv").exists()
+    assert Path("go_clusters_stats.json").exists()
+    assert Path("go_clusters_meta.tsv").exists()
+    assert Path("cluster_config.yaml").exists()
     assert Path("role_map.yaml").exists()
     assert Path("go_terms_unknown_role.txt").exists()
     with Path("go_graph.pkl").open("rb") as handle:
@@ -218,6 +223,126 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
         "N_GLYCOSYLATION\tPS00001\tN-glycosylation site\t"
         "N-{P}-[ST]-{P}\tN!P[ST]!P\tprosite\n"
     )
+
+
+def test_build_library_skips_current_derived_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(
+        app,
+        ["build-library", "--write-report", "report.txt"],
+    )
+    assert first_result.exit_code == 0
+    mtimes = {
+        path: Path(path).stat().st_mtime_ns
+        for path in [
+            "go_graph.pkl",
+            "accession_mf_go.tsv",
+            "go_graph.json",
+            "excluded_mf_annotations.tsv",
+            "prosig_motifs.tsv",
+            "report.txt",
+            "go_clusters.tsv",
+            "go_clusters_stats.json",
+            "go_clusters_meta.tsv",
+            "cluster_config.yaml",
+        ]
+    }
+
+    second_result = CliRunner().invoke(
+        app,
+        ["build-library", "--write-report", "report.txt"],
+    )
+
+    assert second_result.exit_code == 0
+    assert {
+        path: Path(path).stat().st_mtime_ns for path in mtimes
+    } == mtimes
+    expected_log_fragments = [
+        "Skipping GO graph build",
+        "Skipping accession MF GO terms",
+        "Skipping ProSig motif library build",
+        "Skipping GO clustering",
+    ]
+    for expected in expected_log_fragments:
+        assert expected in second_result.output
+
+
+def test_build_library_reclusters_when_cluster_config_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(app, ["build-library"])
+    assert first_result.exit_code == 0
+    first_cluster_mtime = Path("go_clusters.tsv").stat().st_mtime_ns
+
+    config_path = Path("cluster_config.yaml")
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        .replace("neighbors: 10", "neighbors: 1")
+        .replace("resolution: 1.0", "resolution: 0.5"),
+        encoding="utf-8",
+    )
+    config_mtime = max(
+        config_path.stat().st_mtime_ns,
+        first_cluster_mtime + 1_000_000,
+    )
+    os.utime(config_path, ns=(config_mtime, config_mtime))
+
+    second_result = CliRunner().invoke(app, ["build-library"])
+
+    assert second_result.exit_code == 0
+    assert "Skipping GO clustering" not in second_result.output
+    assert Path("go_clusters.tsv").stat().st_mtime_ns > first_cluster_mtime
+    stats = json.loads(Path("go_clusters_stats.json").read_text(encoding="utf-8"))
+    assert stats["neighbors"] == 1
+    assert stats["resolution"] == 0.5
+
+
+def test_build_library_force_rebuilds_current_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(app, ["build-library"])
+    assert first_result.exit_code == 0
+    os.utime("go-basic.obo", (100, 100))
+    os.utime("uniprot_sprot.dat.gz", (100, 100))
+    os.utime("prosite.dat", (100, 100))
+    os.utime("role_map.yaml", (100, 100))
+    os.utime("cluster_config.yaml", (100, 100))
+    os.utime("go_graph.pkl", (200, 200))
+    os.utime("accession_mf_go.tsv", (200, 200))
+    os.utime("prosig_motifs.tsv", (200, 200))
+    os.utime("go_clusters.tsv", (200, 200))
+    os.utime("go_clusters_stats.json", (200, 200))
+    os.utime("go_clusters_meta.tsv", (200, 200))
+
+    forced_result = CliRunner().invoke(app, ["build-library", "-f"])
+
+    assert forced_result.exit_code == 0
+    assert Path("go_graph.pkl").stat().st_mtime > 200
+    assert Path("accession_mf_go.tsv").stat().st_mtime > 200
+    assert Path("prosig_motifs.tsv").stat().st_mtime > 200
+    assert Path("go_clusters.tsv").stat().st_mtime > 200
+    assert Path("go_clusters_stats.json").stat().st_mtime > 200
+    assert Path("go_clusters_meta.tsv").stat().st_mtime > 200
+    assert Path("cluster_config.yaml").stat().st_mtime == 100
 
 
 def test_build_go_pkl_logs_semantic_role_assignment(

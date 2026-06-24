@@ -1,0 +1,32 @@
+# ProSig GO clustering configuration.
+# This file is created when missing and is safe to edit.
+
+# Path to write GO clustering statistics and provenance.
+stats_file: go_clusters_stats.json
+
+# Path to write per-cluster metadata.
+meta_file: go_clusters_meta.tsv
+
+# Number of nearest GO-similarity neighbors used to build the sparse graph.
+neighbors: 10
+
+# Leiden community detection resolution parameter.
+resolution: 1.0
+
+# Seconds between long-running GO clustering progress logs.
+progress_interval_seconds: 60.0
+
+# Deprecated: clustering now uses the precomputed Lin matrix instead.
+term_cache_size_mb: 256
+
+# Approximate GO profile-pair AMB cache size in MB. Use 0 to disable.
+profile_cache_size_mb: 128
+
+# Minimum ancestor IC for GO clustering candidate terms.
+min_informative_ic: 0.5
+
+# Maximum fraction of cleaned accessions nominated by one candidate GO term.
+max_posting_fraction: 0.05
+
+# Optional absolute posting-list cap. Use 0 to derive from max_posting_fraction.
+max_posting_size: 0

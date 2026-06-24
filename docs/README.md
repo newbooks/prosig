@@ -6,3 +6,5 @@ This directory holds planning, design, and implementation notes for ProSig.
 - `specs/`: implementation specs for algorithms, modules, and workflows.
 - `decisions/`: decision records for important technical or scientific choices.
 - `prosig_motifs.md`: user-facing guide to the ProSig motif syntax.
+
+Current clustering behavior is documented in `specs/go_accession_clustering.md`.

@@ -96,6 +96,31 @@ Initial implemented commands:
 Planned diagnostic commands include accession lookup, motif lookup, motif
 summary, GO term-set similarity, and cluster/member inspection.
 
+## `build-library` GO Clustering
+
+`prosig build-library` includes GO accession clustering as part of library
+construction rather than exposing a separate top-level clustering command.
+
+The clustering workflow consumes `go_graph.pkl` and
+`accession_mf_go.tsv`, builds a sparse GO-set similarity kNN graph, and runs
+Leiden community detection to produce:
+
+```text
+go_clusters.tsv
+go_clusters_stats.json
+```
+
+The command rebuilds these cluster artifacts only when they are missing,
+older than their dependencies, or explicitly forced. See
+`go_accession_clustering.md` for the algorithm, output formats, CLI options,
+dependency policy, and tests.
+
+Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
+in `cluster_config.yaml`, created from a packaged starter template when
+missing. The same config also controls the stats output path and clustering
+progress log interval. Because the config is a clustering input, editing it
+invalidates the cluster outputs.
+
 ## Open Questions
 
 - Which command should be implemented first after `setup-data`?

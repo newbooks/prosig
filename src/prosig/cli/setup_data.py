@@ -43,6 +43,7 @@ def setup_data(
     force: bool = typer.Option(
         False,
         "--force",
+        "-f",
         help="Overwrite existing files.",
     ),
     dry_run: bool = typer.Option(

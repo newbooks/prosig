@@ -328,9 +328,10 @@ score path should:
 - avoid graph path rendering
 - optionally use a term-pair score cache for repeated clustering workloads
 
-Future clustering code should reuse the same scalar set method and pass caches
-when comparing many profiles. A profile-level cache keyed by sorted valid term
-tuples may also be added for repeated accession or cluster comparisons.
+Future clustering code should reuse the same AMB/Lin semantics, but not the
+diagnostic implementation path. Clustering should use a separate fast scalar
+index with bounded term-pair and bounded profile-pair caches; the diagnostic
+`GoSimilarity` API remains optimized for clarity and detailed output.
 
 ## Tests
 
@@ -349,4 +350,5 @@ Required focused tests:
 
 ## Open Questions
 
-- Should clustering use bounded term-pair caches by default?
+- Should the diagnostic set-similarity API expose the fast scalar index, or keep
+  it private to clustering workloads?

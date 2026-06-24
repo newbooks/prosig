@@ -19,6 +19,7 @@ def test_setup_data_help_includes_threads_option() -> None:
     assert result.exit_code == 0
     assert "--threads" in result.stdout
     assert "--force" in result.stdout
+    assert "-f" in result.stdout
     assert "--dry-run" in result.stdout
 
 
