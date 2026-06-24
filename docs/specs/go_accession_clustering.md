@@ -445,6 +445,13 @@ requested many times.
 
 Only accessions incident to at least one positive edge enter the Leiden graph.
 
+Count accessions removed during GO/IC filtering and retained accessions with no
+positive edge as excluded. Therefore:
+
+```text
+input_accessions = clustered_accessions + excluded_accessions
+```
+
 Log the count of excluded accessions. Do not write singleton clusters for
 isolated accessions in the initial implementation, because pclass excluded
 accessions with no determinable positive GO-similarity edges and downstream

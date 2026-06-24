@@ -188,11 +188,12 @@ def cluster_accessions_by_go(
             lin_similarity_matrix=lin_similarity_matrix,
         )
         logger.info("Saved GO cluster metadata to %s", meta_path)
-    excluded_accession_count = len(accessions) - len(active_accessions)
+    excluded_accession_count = input_accessions - len(active_accessions)
     cluster_count = len(set(cluster_by_accession.values()))
     if excluded_accession_count:
         logger.info(
-            "Excluded %s accessions with no determinable positive GO-similarity edges",
+            "Excluded %s accessions during GO/IC filtering or because they had "
+            "no determinable positive GO-similarity edges",
             f"{excluded_accession_count:,}",
         )
     logger.info(

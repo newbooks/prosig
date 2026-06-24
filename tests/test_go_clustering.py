@@ -48,7 +48,8 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     accession_go.write_text(
         "P1\tGO:0000002\n"
         "P2\tGO:0000002\n"
-        "P3\tGO:0000003\n",
+        "P3\tGO:0000003\n"
+        "P4\tGO:9999999\n",
         encoding="utf-8",
     )
 
@@ -66,6 +67,11 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     )
 
     assert result.clustered_accessions == 3
+    assert result.input_accessions == 4
+    assert result.excluded_accessions == 1
+    assert result.input_accessions == (
+        result.clustered_accessions + result.excluded_accessions
+    )
     assert result.meta_file == meta_out
     assert result.clusters >= 1
     assert cluster_out.read_text(encoding="utf-8").splitlines()[0] == (
@@ -75,6 +81,12 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     stats = json.loads(stats_out.read_text(encoding="utf-8"))
     assert stats["algorithm"] == "go_set_similarity_knn_leiden"
     assert stats["clustered_accessions"] == 3
+    assert stats["input_accessions"] == 4
+    assert stats["cleaned_accessions"] == 3
+    assert stats["excluded_accessions"] == 1
+    assert stats["input_accessions"] == (
+        stats["clustered_accessions"] + stats["excluded_accessions"]
+    )
     assert stats["outputs"]["meta"] == str(meta_out)
     assert stats["lin_matrix"]["dtype"] == "float32"
     assert stats["lin_matrix"]["storage"] == "memory"
