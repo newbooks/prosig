@@ -2,17 +2,116 @@
 
 from __future__ import annotations
 
+import logging
 import pickle
 import re
+from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
+
+import numpy as np
 
 from prosig.go.build import MF_NAMESPACE
 
 GO_ID_PATTERN = re.compile(r"GO:\d{7}")
 GO_ID_TOKEN_PATTERN = re.compile(r"^GO:\d{7}$")
+TERM_PAIR_CACHE_ENTRY_BYTES = 256
+PROFILE_PAIR_CACHE_ENTRY_BYTES = 512
+
+
+@dataclass(frozen=True)
+class CacheStats:
+    """Bounded cache accounting for long-running clustering diagnostics."""
+
+    budget_mb: int
+    max_entries: int
+    entries: int
+    hits: int
+    misses: int
+    evictions: int
+
+
+class BoundedSimilarityCache:
+    """Approximate memory-bounded LRU cache for scalar similarity scores."""
+
+    def __init__(self, max_bytes: int, *, entry_bytes: int) -> None:
+        self.max_entries = max(0, max_bytes // entry_bytes)
+        self._scores: OrderedDict[Any, float | None] = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+
+    def __len__(self) -> int:
+        return len(self._scores)
+
+    def get(self, key: Any) -> tuple[bool, float | None]:
+        """Return (found, score), marking found entries recently used."""
+        try:
+            score = self._scores.pop(key)
+        except KeyError:
+            self.misses += 1
+            return False, None
+        self._scores[key] = score
+        self.hits += 1
+        return True, score
+
+    def put(self, key: Any, score: float | None) -> None:
+        """Store a score, evicting least-recently-used entries past the budget."""
+        if self.max_entries == 0:
+            return
+        if key in self._scores:
+            self._scores.pop(key)
+        self._scores[key] = score
+        while len(self._scores) > self.max_entries:
+            self._scores.popitem(last=False)
+            self.evictions += 1
+
+    def stats(self, *, budget_mb: int) -> CacheStats:
+        """Return current cache accounting."""
+        return CacheStats(
+            budget_mb=budget_mb,
+            max_entries=self.max_entries,
+            entries=len(self._scores),
+            hits=self.hits,
+            misses=self.misses,
+            evictions=self.evictions,
+        )
+
+
+class BoundedTermPairCache(BoundedSimilarityCache):
+    """Bounded cache for scalar GO term-pair Lin scores."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(max_bytes, entry_bytes=TERM_PAIR_CACHE_ENTRY_BYTES)
+
+
+class BoundedProfilePairCache(BoundedSimilarityCache):
+    """Bounded cache for scalar GO profile-pair AMB scores."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(max_bytes, entry_bytes=PROFILE_PAIR_CACHE_ENTRY_BYTES)
+
+
+TermPairCache: TypeAlias = dict[int, float | None] | BoundedTermPairCache
+ProfilePairCache: TypeAlias = (
+    dict[tuple[tuple[int, ...], tuple[int, ...]], float | None]
+    | BoundedProfilePairCache
+)
+
+
+@dataclass(frozen=True)
+class FastGoSimilarityIndex:
+    """Runtime index for repeated scalar GO similarity calculations."""
+
+    ic_by_term: dict[str, float]
+    ancestors_by_term: dict[str, frozenset[str]]
+    term_id_by_term: dict[str, int]
+    term_by_id: tuple[str, ...]
+    ic_by_id: tuple[float, ...]
+    ancestor_mask_by_id: tuple[int, ...]
+    ancestors_by_desc_ic_by_id: tuple[tuple[int, ...], ...]
 
 
 @dataclass(frozen=True)
@@ -387,6 +486,313 @@ class GoSimilarity:
         if mica is None:
             return None
         return mica[0]
+
+
+def build_fast_go_similarity_index(artifact: dict[str, Any]) -> FastGoSimilarityIndex:
+    """Build a compact runtime index for repeated scalar GO similarity calls."""
+    terms = artifact.get("terms")
+    if not isinstance(terms, dict):
+        raise ValueError("GO artifact is missing a 'terms' mapping")
+
+    ic_by_term = {
+        go_id: float(ic)
+        for go_id, term in terms.items()
+        if isinstance(term, dict) and isinstance((ic := term.get("ic")), (int, float))
+    }
+    term_by_id = tuple(sorted(ic_by_term))
+    term_id_by_term = {
+        go_id: term_id for term_id, go_id in enumerate(term_by_id)
+    }
+    ic_by_id = tuple(ic_by_term[go_id] for go_id in term_by_id)
+    ancestors_by_term = {
+        go_id: frozenset(
+            ancestor
+            for ancestor in (go_id, *terms.get(go_id, {}).get("ancestors", ()))
+            if ancestor in ic_by_term
+        )
+        for go_id in term_by_id
+    }
+
+    ancestor_mask_by_id: list[int] = []
+    ancestors_by_desc_ic_by_id: list[tuple[int, ...]] = []
+    for go_id in term_by_id:
+        ancestor_ids = [
+            term_id_by_term[ancestor]
+            for ancestor in ancestors_by_term[go_id]
+            if ancestor in term_id_by_term
+        ]
+        mask = 0
+        for ancestor_id in ancestor_ids:
+            mask |= 1 << ancestor_id
+        ancestor_mask_by_id.append(mask)
+        ancestors_by_desc_ic_by_id.append(
+            tuple(
+                sorted(
+                    ancestor_ids,
+                    key=lambda ancestor_id: (ic_by_id[ancestor_id], ancestor_id),
+                    reverse=True,
+                )
+            )
+        )
+
+    return FastGoSimilarityIndex(
+        ic_by_term=ic_by_term,
+        ancestors_by_term=ancestors_by_term,
+        term_id_by_term=term_id_by_term,
+        term_by_id=term_by_id,
+        ic_by_id=ic_by_id,
+        ancestor_mask_by_id=tuple(ancestor_mask_by_id),
+        ancestors_by_desc_ic_by_id=tuple(ancestors_by_desc_ic_by_id),
+    )
+
+
+def valid_go_profile(
+    index: FastGoSimilarityIndex,
+    terms: tuple[str, ...] | list[str] | set[str],
+) -> tuple[str, ...]:
+    """Return sorted deduplicated terms present in a fast similarity index."""
+    return tuple(
+        sorted(term for term in _deduplicate(terms) if term in index.ic_by_term)
+    )
+
+
+def lin_fast(
+    index: FastGoSimilarityIndex,
+    go1: str,
+    go2: str,
+    *,
+    term_pair_cache: TermPairCache | None = None,
+) -> float | None:
+    """Compute scalar Lin similarity using the fast index."""
+    term_id1 = index.term_id_by_term.get(go1)
+    term_id2 = index.term_id_by_term.get(go2)
+    if term_id1 is None or term_id2 is None:
+        return None
+
+    cache_key = _canonical_term_pair_id(term_id1, term_id2, len(index.ic_by_id))
+    if isinstance(term_pair_cache, BoundedTermPairCache):
+        found, score = term_pair_cache.get(cache_key)
+        if found:
+            return score
+    elif isinstance(term_pair_cache, dict) and cache_key in term_pair_cache:
+        return term_pair_cache[cache_key]
+
+    ic1 = index.ic_by_id[term_id1]
+    ic2 = index.ic_by_id[term_id2]
+    denominator = ic1 + ic2
+    if denominator == 0.0:
+        similarity = None
+    else:
+        ancestor_mask1 = index.ancestor_mask_by_id[term_id1]
+        ancestor_mask2 = index.ancestor_mask_by_id[term_id2]
+        if not ancestor_mask1 & ancestor_mask2:
+            similarity = None
+        else:
+            ancestors = index.ancestors_by_desc_ic_by_id[term_id1]
+            other_ancestor_mask = ancestor_mask2
+            if len(index.ancestors_by_desc_ic_by_id[term_id2]) < len(ancestors):
+                ancestors = index.ancestors_by_desc_ic_by_id[term_id2]
+                other_ancestor_mask = ancestor_mask1
+            mica_ic = 0.0
+            for ancestor_id in ancestors:
+                if other_ancestor_mask & (1 << ancestor_id):
+                    mica_ic = index.ic_by_id[ancestor_id]
+                    break
+            similarity = 2 * mica_ic / denominator
+
+    if isinstance(term_pair_cache, BoundedTermPairCache):
+        term_pair_cache.put(cache_key, similarity)
+    elif isinstance(term_pair_cache, dict):
+        term_pair_cache[cache_key] = similarity
+    return similarity
+
+
+def build_lin_similarity_matrix(
+    index: FastGoSimilarityIndex,
+    *,
+    logger: logging.Logger | None = None,
+    progress_interval_seconds: float = 60.0,
+) -> np.ndarray:
+    """Build a dense float32 pairwise Lin matrix from a fast GO index."""
+    import time
+
+    term_count = len(index.term_by_id)
+    matrix = np.full((term_count, term_count), np.nan, dtype=np.float32)
+    total_pairs = term_count * (term_count + 1) // 2
+    computed_pairs = 0
+    last_log_time = time.monotonic()
+    if logger is not None:
+        logger.info(
+            "Building GO term Lin similarity matrix for %s terms "
+            "(%s upper-triangle pairs)",
+            f"{term_count:,}",
+            f"{total_pairs:,}",
+        )
+
+    for term_id1 in range(term_count):
+        for term_id2 in range(term_id1, term_count):
+            similarity = lin_fast_by_id(index, term_id1, term_id2)
+            if similarity is not None:
+                matrix[term_id1, term_id2] = similarity
+                matrix[term_id2, term_id1] = similarity
+            computed_pairs += 1
+        if (
+            logger is not None
+            and time.monotonic() - last_log_time >= progress_interval_seconds
+        ):
+            last_log_time = time.monotonic()
+            logger.info(
+                "Built GO term Lin matrix rows %s/%s; computed %s/%s pairs",
+                f"{term_id1 + 1:,}",
+                f"{term_count:,}",
+                f"{computed_pairs:,}",
+                f"{total_pairs:,}",
+            )
+
+    if logger is not None:
+        logger.info(
+            "Built GO term Lin similarity matrix for %s terms (%s pairs)",
+            f"{term_count:,}",
+            f"{total_pairs:,}",
+        )
+    return matrix
+
+
+def lin_fast_by_id(
+    index: FastGoSimilarityIndex,
+    term_id1: int,
+    term_id2: int,
+) -> float | None:
+    """Compute scalar Lin similarity using integer term IDs."""
+    ic1 = index.ic_by_id[term_id1]
+    ic2 = index.ic_by_id[term_id2]
+    denominator = ic1 + ic2
+    if denominator == 0.0:
+        return None
+
+    ancestor_mask1 = index.ancestor_mask_by_id[term_id1]
+    ancestor_mask2 = index.ancestor_mask_by_id[term_id2]
+    if not ancestor_mask1 & ancestor_mask2:
+        return None
+
+    ancestors = index.ancestors_by_desc_ic_by_id[term_id1]
+    other_ancestor_mask = ancestor_mask2
+    if len(index.ancestors_by_desc_ic_by_id[term_id2]) < len(ancestors):
+        ancestors = index.ancestors_by_desc_ic_by_id[term_id2]
+        other_ancestor_mask = ancestor_mask1
+    mica_ic = 0.0
+    for ancestor_id in ancestors:
+        if other_ancestor_mask & (1 << ancestor_id):
+            mica_ic = index.ic_by_id[ancestor_id]
+            break
+    return 2 * mica_ic / denominator
+
+
+def set_lin_amb_fast_for_valid_profiles(
+    index: FastGoSimilarityIndex,
+    profile1: tuple[str, ...],
+    profile2: tuple[str, ...],
+    *,
+    term_pair_cache: TermPairCache | None = None,
+    profile_pair_cache: ProfilePairCache | None = None,
+    lin_similarity_matrix: np.ndarray | None = None,
+) -> float | None:
+    """Compute scalar AMB Lin similarity for prevalidated sorted GO profiles."""
+    profile_ids1 = _profile_ids(index, profile1)
+    profile_ids2 = _profile_ids(index, profile2)
+    cache_key = _canonical_profile_pair_id(profile_ids1, profile_ids2)
+    if isinstance(profile_pair_cache, BoundedProfilePairCache):
+        found, score = profile_pair_cache.get(cache_key)
+        if found:
+            return score
+    elif isinstance(profile_pair_cache, dict) and cache_key in profile_pair_cache:
+        return profile_pair_cache[cache_key]
+
+    if not profile1 or not profile2:
+        similarity = None
+    else:
+        best_1_to_2: dict[str, float] = {}
+        best_2_to_1: dict[str, float] = {}
+        for term1 in profile1:
+            term_id1 = index.term_id_by_term[term1]
+            for term2 in profile2:
+                term_id2 = index.term_id_by_term[term2]
+                if lin_similarity_matrix is None:
+                    score = lin_fast(
+                        index,
+                        term1,
+                        term2,
+                        term_pair_cache=term_pair_cache,
+                    )
+                else:
+                    score_value = lin_similarity_matrix[term_id1, term_id2]
+                    score = None if np.isnan(score_value) else float(score_value)
+                if score is None:
+                    continue
+                if term1 not in best_1_to_2 or score > best_1_to_2[term1]:
+                    best_1_to_2[term1] = score
+                if term2 not in best_2_to_1 or score > best_2_to_1[term2]:
+                    best_2_to_1[term2] = score
+
+        if not best_1_to_2 or not best_2_to_1:
+            similarity = None
+        else:
+            mean_1_to_2 = sum(best_1_to_2.values()) / len(best_1_to_2)
+            mean_2_to_1 = sum(best_2_to_1.values()) / len(best_2_to_1)
+            similarity = (mean_1_to_2 + mean_2_to_1) / 2
+
+    if isinstance(profile_pair_cache, BoundedProfilePairCache):
+        profile_pair_cache.put(cache_key, similarity)
+    elif isinstance(profile_pair_cache, dict):
+        profile_pair_cache[cache_key] = similarity
+    return similarity
+
+
+def set_lin_amb_fast(
+    index: FastGoSimilarityIndex,
+    terms1: tuple[str, ...] | list[str] | set[str],
+    terms2: tuple[str, ...] | list[str] | set[str],
+    *,
+    term_pair_cache: TermPairCache | None = None,
+    profile_pair_cache: ProfilePairCache | None = None,
+    lin_similarity_matrix: np.ndarray | None = None,
+) -> float | None:
+    """Compute scalar AMB Lin similarity between two GO-term sets."""
+    return set_lin_amb_fast_for_valid_profiles(
+        index,
+        valid_go_profile(index, terms1),
+        valid_go_profile(index, terms2),
+        term_pair_cache=term_pair_cache,
+        profile_pair_cache=profile_pair_cache,
+        lin_similarity_matrix=lin_similarity_matrix,
+    )
+
+
+def _canonical_term_pair_id(term_id_a: int, term_id_b: int, term_count: int) -> int:
+    lower, upper = (
+        (term_id_a, term_id_b)
+        if term_id_a <= term_id_b
+        else (term_id_b, term_id_a)
+    )
+    return lower * term_count + upper
+
+
+def _profile_ids(
+    index: FastGoSimilarityIndex,
+    profile: tuple[str, ...],
+) -> tuple[int, ...]:
+    return tuple(index.term_id_by_term[term] for term in profile)
+
+
+def _canonical_profile_pair_id(
+    profile_ids_a: tuple[int, ...],
+    profile_ids_b: tuple[int, ...],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    return (
+        (profile_ids_a, profile_ids_b)
+        if profile_ids_a <= profile_ids_b
+        else (profile_ids_b, profile_ids_a)
+    )
 
 
 def _optional_float(value: object) -> float | None:

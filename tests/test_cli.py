@@ -21,7 +21,7 @@ def test_short_help_option() -> None:
     assert "inspect" in result.stdout
 
 
-def test_build_library_help_includes_planned_options() -> None:
+def test_build_library_help_includes_options() -> None:
     result = CliRunner().invoke(app, ["build-library", "-h"])
 
     assert result.exit_code == 0
@@ -33,6 +33,19 @@ def test_build_library_help_includes_planned_options() -> None:
     assert "--motif-out" in result.stdout
     assert "--write-report" in result.stdout
     assert "--role-map" in result.stdout
+    assert "--cluster-out" in result.stdout
+    assert "--cluster-config" in result.stdout
+    assert "--cluster-neighbors" in result.stdout
+    assert "--cluster-resolution" in result.stdout
+    assert "--cluster-stats-out" not in result.stdout
+    assert "--cluster-progress-interval" not in result.stdout
+    assert "--cluster-term-cache" not in result.stdout
+    assert "--cluster-profile-cache" not in result.stdout
+    assert "--cluster-min-informative-ic" not in result.stdout
+    assert "--cluster-max-posting-fraction" not in result.stdout
+    assert "--cluster-max-posting-size" not in result.stdout
+    assert "--force" in result.stdout
+    assert "-f" in result.stdout
     assert "--namespace" not in result.stdout
     assert "--include-part-of" not in result.stdout
     assert "--ic-log-base" not in result.stdout

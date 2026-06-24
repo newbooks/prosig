@@ -385,11 +385,25 @@ Optional arguments:
 
 ```bash
 --write-report go_pkl_report.txt
+--force
 ```
 
 The command always builds the Molecular Function namespace, uses `is_a`
 relationships only, computes IC with the natural logarithm, and keeps zero-count
 terms with `freq = 0.0` and `ic = None`.
+
+`go_graph.pkl` should be rebuilt only when it is missing, `--force` is set, or
+one of its inputs is newer:
+
+```text
+go-basic.obo
+uniprot_sprot.dat.gz
+role_map.yaml
+```
+
+The separate `accession_mf_go.tsv` artifact depends on
+`uniprot_sprot.dat.gz`. It should be rewritten only when missing, forced, or
+older than the Swiss-Prot source.
 
 ## Design Notes
 

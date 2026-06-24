@@ -96,7 +96,7 @@ prosig setup-data [OPTIONS]
 
 Potential options to specify:
 
-- `--force`: overwrite existing files.
+- `--force`, `-f`: overwrite existing files.
 - `--dry-run`: show what would be fetched without writing files.
 - `--threads INTEGER`: number of download threads to use when threaded downloading is supported. Default: `16`.
 

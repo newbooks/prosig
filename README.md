@@ -34,6 +34,15 @@ review.
 mapping primary Swiss-Prot accessions to semicolon-separated high-quality direct
 MF GO terms for later diagnostics and GO set similarity.
 
+`build-library` skips derived artifacts that are newer than their dependencies.
+Use `--force` or `-f` to rebuild them anyway.
+
+Planned GO accession clustering for `build-library` is specified in
+`docs/specs/go_accession_clustering.md`. It builds a sparse GO-set similarity
+k-nearest-neighbor graph from `go_graph.pkl` and `accession_mf_go.tsv`, runs
+Leiden community detection, and writes `go_clusters.tsv` only when the cluster
+artifact is missing or older than its dependencies.
+
 ## Diagnostic Inspection
 
 `prosig inspect` is a diagnostic command group for checking intermediate
