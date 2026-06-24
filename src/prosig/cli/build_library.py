@@ -96,22 +96,6 @@ def build_library(
             ),
         ),
     ] = Path("cluster_config.yaml"),
-    cluster_neighbors: Annotated[
-        int,
-        typer.Option(
-            "--cluster-neighbors",
-            min=1,
-            help="Number of nearest GO-similarity neighbors for clustering.",
-        ),
-    ] = 10,
-    cluster_resolution: Annotated[
-        float,
-        typer.Option(
-            "--cluster-resolution",
-            min=0.000001,
-            help="Leiden community detection resolution parameter.",
-        ),
-    ] = 1.0,
     force: Annotated[
         bool,
         typer.Option(
@@ -221,8 +205,8 @@ def build_library(
             output_file=cluster_out,
             stats_file=cluster_stats_out,
             meta_file=cluster_meta_out,
-            resolution=cluster_resolution,
-            neighbors=cluster_neighbors,
+            resolution=parsed_cluster_config.resolution,
+            neighbors=parsed_cluster_config.neighbors,
             term_cache_size_mb=parsed_cluster_config.term_cache_size_mb,
             profile_cache_size_mb=parsed_cluster_config.profile_cache_size_mb,
             min_informative_ic=parsed_cluster_config.min_informative_ic,

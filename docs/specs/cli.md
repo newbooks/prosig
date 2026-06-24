@@ -115,10 +115,11 @@ older than their dependencies, or explicitly forced. See
 `go_accession_clustering.md` for the algorithm, output formats, CLI options,
 dependency policy, and tests.
 
-Low-level clustering matrix, cache, and candidate-filter parameters live in
-`cluster_config.yaml`, created from a packaged starter template when missing.
-The same config also controls the stats output path and clustering progress log
-interval.
+Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
+in `cluster_config.yaml`, created from a packaged starter template when
+missing. The same config also controls the stats output path and clustering
+progress log interval. Because the config is a clustering input, editing it
+invalidates the cluster outputs.
 
 ## Open Questions
 

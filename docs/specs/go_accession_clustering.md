@@ -177,8 +177,6 @@ prosig build-library \
   --swissprot uniprot_sprot.dat.gz \
   --go-out go_graph.pkl \
   --cluster-out go_clusters.tsv \
-  --cluster-neighbors 10 \
-  --cluster-resolution 1.0 \
   --cluster-config cluster_config.yaml
 ```
 
@@ -191,13 +189,6 @@ Recommended options:
 --cluster-config PATH
     Path to GO clustering config. Created from the starter template when
     missing. Default: cluster_config.yaml.
-
---cluster-neighbors INTEGER
-    Number of nearest GO-similarity neighbors used to build the sparse graph.
-    Default: 10. Minimum: 1.
-
---cluster-resolution FLOAT
-    Leiden resolution parameter. Default: 1.0. Must be > 0.
 
 --force, -f
     Rebuild derived build-library artifacts even when outputs are newer than
@@ -218,6 +209,8 @@ Default template:
 ```yaml
 stats_file: go_clusters_stats.json
 meta_file: go_clusters_meta.tsv
+neighbors: 10
+resolution: 1.0
 progress_interval_seconds: 60.0
 term_cache_size_mb: 256
 profile_cache_size_mb: 128
@@ -234,6 +227,13 @@ stats_file
 
 meta_file
     Path to write per-cluster metadata.
+
+neighbors
+    Number of nearest GO-similarity neighbors used to build the sparse graph.
+    Default: 10. Must be at least 1.
+
+resolution
+    Leiden resolution parameter. Default: 1.0. Must be greater than 0.
 
 progress_interval_seconds
     Seconds between long-running kNN progress logs. Must be > 0.
@@ -400,7 +400,7 @@ similarity = go_set_similarity_for_valid_profiles_fast(profile_a, profile_b)
 ```
 
 4. Treat unavailable similarity as no edge.
-5. Keep the top `k = --cluster-neighbors` positive candidates, sorting by:
+5. Keep the top `k = neighbors` positive candidates, sorting by:
 
 ```text
 similarity descending, accession ascending
@@ -684,7 +684,7 @@ partition is not under test.
 - Should isolated accessions eventually be written as singleton clusters for
   recall, or remain omitted for motif-discovery precision?
 - Should `igraph`/`leidenalg` be base dependencies or a `[cluster]` extra?
-- Should resolution profiles be supported later to help choose
-  `--cluster-resolution`?
+- Should resolution profiles be supported later to help choose the configured
+  `resolution`?
 - Should kNN edge construction be parallelized with multiprocessing after the
   single-process implementation is validated?

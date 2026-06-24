@@ -7,6 +7,12 @@ stats_file: go_clusters_stats.json
 # Path to write per-cluster metadata.
 meta_file: go_clusters_meta.tsv
 
+# Number of nearest GO-similarity neighbors used to build the sparse graph.
+neighbors: 10
+
+# Leiden community detection resolution parameter.
+resolution: 1.0
+
 # Seconds between long-running GO clustering progress logs.
 progress_interval_seconds: 60.0
 

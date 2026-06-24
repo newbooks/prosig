@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from prosig.go.clustering import (
+    CandidateIndex,
     build_candidate_index,
     cluster_accessions_by_go,
+    knn_edges_from_go_similarity,
     parse_cluster_config,
 )
 from prosig.go.similarity import build_fast_go_similarity_index
@@ -89,6 +91,8 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
             [
                 "stats_file: custom_stats.json",
                 "meta_file: custom_meta.tsv",
+                "neighbors: 7",
+                "resolution: 0.75",
                 "progress_interval_seconds: 12.5",
                 "term_cache_size_mb: 16",
                 "profile_cache_size_mb: 8",
@@ -105,6 +109,8 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
 
     assert config.stats_file == "custom_stats.json"
     assert config.meta_file == "custom_meta.tsv"
+    assert config.neighbors == 7
+    assert config.resolution == 0.75
     assert config.progress_interval_seconds == 12.5
     assert config.term_cache_size_mb == 16
     assert config.profile_cache_size_mb == 8
@@ -115,6 +121,48 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
     config_path.write_text("max_posting_fraction: 2\n", encoding="utf-8")
     with pytest.raises(ValueError, match="max posting fraction"):
         parse_cluster_config(config_path)
+
+    config_path.write_text("neighbors: 0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="cluster neighbors"):
+        parse_cluster_config(config_path)
+
+    config_path.write_text("resolution: 0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="cluster resolution"):
+        parse_cluster_config(config_path)
+
+
+def test_identical_profile_ties_use_accession_order() -> None:
+    artifact = _small_artifact()
+    index = build_fast_go_similarity_index(artifact)
+    accessions = ["P4", "P5", "P3", "P2", "P1"]
+    accession_terms = {
+        accession: ("GO:0000002",)
+        for accession in accessions
+    }
+    candidate_index = CandidateIndex(
+        postings_by_term={},
+        terms_by_accession_index=[() for _ in accessions],
+        informative_terms_before_filtering=0,
+        informative_terms_after_filtering=0,
+        posting_cap=0,
+        fallback_accessions_after_filtering=0,
+    )
+
+    edges = knn_edges_from_go_similarity(
+        go_index=index,
+        accessions=accessions,
+        accession_terms=accession_terms,
+        candidate_index=candidate_index,
+        neighbors=2,
+        progress_interval_seconds=60.0,
+    )
+
+    p5_index = accessions.index("P5")
+    p1_index = accessions.index("P1")
+    p2_index = accessions.index("P2")
+    assert (min(p5_index, p1_index), max(p5_index, p1_index)) in edges
+    assert (min(p5_index, p2_index), max(p5_index, p2_index)) in edges
+    assert all(weight == 1.0 for weight in edges.values())
 
 
 def _small_artifact() -> dict:

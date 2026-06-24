@@ -35,8 +35,8 @@ def test_build_library_help_includes_options() -> None:
     assert "--role-map" in result.stdout
     assert "--cluster-out" in result.stdout
     assert "--cluster-config" in result.stdout
-    assert "--cluster-neighbors" in result.stdout
-    assert "--cluster-resolution" in result.stdout
+    assert "--cluster-neighbors" not in result.stdout
+    assert "--cluster-resolution" not in result.stdout
     assert "--cluster-stats-out" not in result.stdout
     assert "--cluster-progress-interval" not in result.stdout
     assert "--cluster-term-cache" not in result.stdout

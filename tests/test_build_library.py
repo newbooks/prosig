@@ -274,6 +274,42 @@ def test_build_library_skips_current_derived_artifacts(
         assert expected in second_result.output
 
 
+def test_build_library_reclusters_when_cluster_config_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(app, ["build-library"])
+    assert first_result.exit_code == 0
+    first_cluster_mtime = Path("go_clusters.tsv").stat().st_mtime_ns
+
+    config_path = Path("cluster_config.yaml")
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        .replace("neighbors: 10", "neighbors: 1")
+        .replace("resolution: 1.0", "resolution: 0.5"),
+        encoding="utf-8",
+    )
+    config_mtime = max(
+        config_path.stat().st_mtime_ns,
+        first_cluster_mtime + 1_000_000,
+    )
+    os.utime(config_path, ns=(config_mtime, config_mtime))
+
+    second_result = CliRunner().invoke(app, ["build-library"])
+
+    assert second_result.exit_code == 0
+    assert "Skipping GO clustering" not in second_result.output
+    assert Path("go_clusters.tsv").stat().st_mtime_ns > first_cluster_mtime
+    stats = json.loads(Path("go_clusters_stats.json").read_text(encoding="utf-8"))
+    assert stats["neighbors"] == 1
+    assert stats["resolution"] == 0.5
+
+
 def test_build_library_force_rebuilds_current_artifacts(
     tmp_path: Path,
     monkeypatch,

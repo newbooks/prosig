@@ -32,6 +32,8 @@ DEFAULT_TERM_CACHE_SIZE_MB = 256
 DEFAULT_PROFILE_CACHE_SIZE_MB = 128
 DEFAULT_MIN_INFORMATIVE_IC = 0.5
 DEFAULT_MAX_POSTING_FRACTION = 0.05
+DEFAULT_NEIGHBORS = 10
+DEFAULT_RESOLUTION = 1.0
 BYTES_PER_MEGABYTE = 1_048_576
 LEIDEN_SEED = 0
 
@@ -68,6 +70,8 @@ class GoClusteringConfig:
 
     stats_file: str = "go_clusters_stats.json"
     meta_file: str = "go_clusters_meta.tsv"
+    neighbors: int = DEFAULT_NEIGHBORS
+    resolution: float = DEFAULT_RESOLUTION
     progress_interval_seconds: float = PROGRESS_LOG_INTERVAL_SECONDS
     term_cache_size_mb: int = DEFAULT_TERM_CACHE_SIZE_MB
     profile_cache_size_mb: int = DEFAULT_PROFILE_CACHE_SIZE_MB
@@ -84,8 +88,8 @@ def cluster_accessions_by_go(
     output_file: str | Path = "go_clusters.tsv",
     stats_file: str | Path | None = "go_clusters_stats.json",
     meta_file: str | Path | None = "go_clusters_meta.tsv",
-    resolution: float = 1.0,
-    neighbors: int = 10,
+    resolution: float = DEFAULT_RESOLUTION,
+    neighbors: int = DEFAULT_NEIGHBORS,
     term_cache_size_mb: int = DEFAULT_TERM_CACHE_SIZE_MB,
     profile_cache_size_mb: int = DEFAULT_PROFILE_CACHE_SIZE_MB,
     min_informative_ic: float = DEFAULT_MIN_INFORMATIVE_IC,
@@ -247,6 +251,8 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
     allowed_keys = {
         "stats_file",
         "meta_file",
+        "neighbors",
+        "resolution",
         "progress_interval_seconds",
         "term_cache_size_mb",
         "profile_cache_size_mb",
@@ -270,6 +276,8 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
     config = GoClusteringConfig(
         stats_file=values.get("stats_file", "go_clusters_stats.json"),
         meta_file=values.get("meta_file", "go_clusters_meta.tsv"),
+        neighbors=_parse_int_config(values, "neighbors", DEFAULT_NEIGHBORS),
+        resolution=_parse_float_config(values, "resolution", DEFAULT_RESOLUTION),
         progress_interval_seconds=_parse_float_config(
             values,
             "progress_interval_seconds",
@@ -302,8 +310,8 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
     if not config.meta_file.strip():
         raise ValueError("Cluster config key meta_file must have a non-empty value")
     _validate_parameters(
-        resolution=1.0,
-        neighbors=1,
+        resolution=config.resolution,
+        neighbors=config.neighbors,
         term_cache_size_mb=config.term_cache_size_mb,
         profile_cache_size_mb=config.profile_cache_size_mb,
         min_informative_ic=config.min_informative_ic,
@@ -415,7 +423,6 @@ def knn_edges_from_go_similarity(
 
     logger = logging.getLogger(LOGGER_NAME)
     indices_by_profile = _accession_indices_by_go_profile(accessions, accession_terms)
-    profile_positions = _profile_positions_by_accession_index(indices_by_profile)
     comparable_profile_cache = {
         profile: _go_profile_has_comparable_terms(go_index, profile)
         for profile in indices_by_profile
@@ -428,9 +435,9 @@ def knn_edges_from_go_similarity(
         profile = accession_terms[accession]
         profile_indices = indices_by_profile[profile]
         if comparable_profile_cache[profile] and len(profile_indices) - 1 >= neighbors:
-            for other_index in _nearby_profile_indices(
+            for other_index in _first_profile_indices_by_accession(
                 profile_indices,
-                position=profile_positions[accession_index],
+                accession_index=accession_index,
                 neighbors=neighbors,
             ):
                 edge = tuple(sorted((accession_index, other_index)))
@@ -738,38 +745,25 @@ def _accession_indices_by_go_profile(
         indices_by_profile.setdefault(accession_terms[accession], []).append(
             accession_index
         )
+    for profile_indices in indices_by_profile.values():
+        profile_indices.sort(key=lambda accession_index: accessions[accession_index])
     return indices_by_profile
 
 
-def _profile_positions_by_accession_index(
-    indices_by_profile: dict[tuple[str, ...], list[int]],
-) -> dict[int, int]:
-    positions: dict[int, int] = {}
-    for profile_indices in indices_by_profile.values():
-        for position, accession_index in enumerate(profile_indices):
-            positions[accession_index] = position
-    return positions
-
-
-def _nearby_profile_indices(
+def _first_profile_indices_by_accession(
     profile_indices: list[int],
     *,
-    position: int,
+    accession_index: int,
     neighbors: int,
 ) -> list[int]:
     selected_indices: list[int] = []
-    offset = 1
-    while len(selected_indices) < neighbors and (
-        position - offset >= 0 or position + offset < len(profile_indices)
-    ):
-        if position - offset >= 0:
-            selected_indices.append(profile_indices[position - offset])
-            if len(selected_indices) == neighbors:
-                break
-        if position + offset < len(profile_indices):
-            selected_indices.append(profile_indices[position + offset])
-        offset += 1
-    return selected_indices[:neighbors]
+    for candidate_index in profile_indices:
+        if candidate_index == accession_index:
+            continue
+        selected_indices.append(candidate_index)
+        if len(selected_indices) == neighbors:
+            break
+    return selected_indices
 
 
 def _active_accession_indices(edges: dict[tuple[int, int], float]) -> list[int]:
