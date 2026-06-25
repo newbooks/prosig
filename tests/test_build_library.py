@@ -194,9 +194,20 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     assert not Path("go_frequency_metadata.tsv").exists()
     assert Path("excluded_mf_annotations.tsv").exists()
     assert Path("accession_mf_go.tsv").exists()
-    assert Path("go_clusters.tsv").exists()
-    assert Path("go_clusters_stats.json").exists()
-    assert Path("go_clusters_meta.tsv").exists()
+    assert Path("accession.fasta").exists()
+    assert Path("accession.fasta.idx").exists()
+    assert Path("leiden_clusters.tsv").exists()
+    assert Path("leiden_clusters_stats.json").exists()
+    assert Path("leiden_clusters_meta.tsv").exists()
+    assert Path("clusters.tsv").exists()
+    assert Path("clusters_stats.json").exists()
+    assert Path("clusters_meta.tsv").exists()
+    refined_stats = json.loads(
+        Path("clusters_stats.json").read_text(encoding="utf-8")
+    )
+    assert refined_stats["min_cluster_similarity"] == 0.25
+    assert "leiden_singletons" in refined_stats
+    assert "refined_singletons" in refined_stats
     assert Path("cluster_config.yaml").exists()
     assert Path("role_map.yaml").exists()
     assert Path("go_terms_unknown_role.txt").exists()
@@ -239,20 +250,26 @@ def test_build_library_skips_current_derived_artifacts(
         ["build-library", "--write-report", "report.txt"],
     )
     assert first_result.exit_code == 0
-    mtimes = {
+    stable_mtimes = {
         path: Path(path).stat().st_mtime_ns
         for path in [
             "go_graph.pkl",
             "accession_mf_go.tsv",
+            "accession.fasta",
+            "accession.fasta.idx",
             "go_graph.json",
             "excluded_mf_annotations.tsv",
             "prosig_motifs.tsv",
             "report.txt",
-            "go_clusters.tsv",
-            "go_clusters_stats.json",
-            "go_clusters_meta.tsv",
+            "leiden_clusters.tsv",
+            "leiden_clusters_stats.json",
+            "leiden_clusters_meta.tsv",
             "cluster_config.yaml",
         ]
+    }
+    refined_mtimes = {
+        path: Path(path).stat().st_mtime_ns
+        for path in ["clusters.tsv", "clusters_stats.json", "clusters_meta.tsv"]
     }
 
     second_result = CliRunner().invoke(
@@ -262,13 +279,19 @@ def test_build_library_skips_current_derived_artifacts(
 
     assert second_result.exit_code == 0
     assert {
-        path: Path(path).stat().st_mtime_ns for path in mtimes
-    } == mtimes
+        path: Path(path).stat().st_mtime_ns for path in stable_mtimes
+    } == stable_mtimes
+    assert all(
+        Path(path).stat().st_mtime_ns >= modified_time
+        for path, modified_time in refined_mtimes.items()
+    )
     expected_log_fragments = [
         "Skipping GO graph build",
         "Skipping accession MF GO terms",
+        "Skipping Swiss-Prot sequence FASTA and index",
         "Skipping ProSig motif library build",
-        "Skipping GO clustering",
+        "Skipping Leiden GO clustering",
+        "Starting complete-linkage refinement",
     ]
     for expected in expected_log_fragments:
         assert expected in second_result.output
@@ -285,13 +308,13 @@ def test_build_library_reclusters_when_cluster_config_changes(
 
     first_result = CliRunner().invoke(app, ["build-library"])
     assert first_result.exit_code == 0
-    first_cluster_mtime = Path("go_clusters.tsv").stat().st_mtime_ns
+    first_cluster_mtime = Path("leiden_clusters.tsv").stat().st_mtime_ns
 
     config_path = Path("cluster_config.yaml")
     config_path.write_text(
         config_path.read_text(encoding="utf-8")
         .replace("neighbors: 10", "neighbors: 1")
-        .replace("resolution: 1.0", "resolution: 0.5"),
+        .replace("resolution: 2.0", "resolution: 0.5"),
         encoding="utf-8",
     )
     config_mtime = max(
@@ -303,11 +326,67 @@ def test_build_library_reclusters_when_cluster_config_changes(
     second_result = CliRunner().invoke(app, ["build-library"])
 
     assert second_result.exit_code == 0
-    assert "Skipping GO clustering" not in second_result.output
-    assert Path("go_clusters.tsv").stat().st_mtime_ns > first_cluster_mtime
-    stats = json.loads(Path("go_clusters_stats.json").read_text(encoding="utf-8"))
+    assert "Skipping Leiden GO clustering" not in second_result.output
+    assert Path("leiden_clusters.tsv").stat().st_mtime_ns > first_cluster_mtime
+    stats = json.loads(
+        Path("leiden_clusters_stats.json").read_text(encoding="utf-8")
+    )
     assert stats["neighbors"] == 1
     assert stats["resolution"] == 0.5
+    assert stats["min_similarity"] == 0.5
+
+
+def test_build_library_refines_without_rebuilding_leiden(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(
+        app,
+        ["build-library", "--min-cluster-similarity", "0.25"],
+    )
+    assert first_result.exit_code == 0
+    leiden_mtime = Path("leiden_clusters.tsv").stat().st_mtime_ns
+
+    second_result = CliRunner().invoke(
+        app,
+        ["build-library", "--min-cluster-similarity", "0.5"],
+    )
+
+    assert second_result.exit_code == 0
+    assert "Skipping Leiden GO clustering" in second_result.output
+    assert "Starting complete-linkage refinement" in second_result.output
+    assert Path("leiden_clusters.tsv").stat().st_mtime_ns == leiden_mtime
+    stats = json.loads(Path("clusters_stats.json").read_text(encoding="utf-8"))
+    assert stats["min_cluster_similarity"] == 0.5
+    assert "refined_singletons" in stats
+
+
+def test_build_library_rebuilds_sequence_pair_when_one_file_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+
+    first_result = CliRunner().invoke(app, ["build-library"])
+    assert first_result.exit_code == 0
+    os.utime("uniprot_sprot.dat.gz", (100, 100))
+    os.utime("accession.fasta", (200, 200))
+    Path("accession.fasta.idx").unlink()
+
+    second_result = CliRunner().invoke(app, ["build-library"])
+
+    assert second_result.exit_code == 0
+    assert Path("accession.fasta.idx").exists()
+    assert Path("accession.fasta").stat().st_mtime > 200
+    assert "Writing Swiss-Prot sequence FASTA and index" in second_result.output
 
 
 def test_build_library_force_rebuilds_current_artifacts(
@@ -328,20 +407,30 @@ def test_build_library_force_rebuilds_current_artifacts(
     os.utime("cluster_config.yaml", (100, 100))
     os.utime("go_graph.pkl", (200, 200))
     os.utime("accession_mf_go.tsv", (200, 200))
+    os.utime("accession.fasta", (200, 200))
+    os.utime("accession.fasta.idx", (200, 200))
     os.utime("prosig_motifs.tsv", (200, 200))
-    os.utime("go_clusters.tsv", (200, 200))
-    os.utime("go_clusters_stats.json", (200, 200))
-    os.utime("go_clusters_meta.tsv", (200, 200))
+    os.utime("leiden_clusters.tsv", (200, 200))
+    os.utime("leiden_clusters_stats.json", (200, 200))
+    os.utime("leiden_clusters_meta.tsv", (200, 200))
+    os.utime("clusters.tsv", (200, 200))
+    os.utime("clusters_stats.json", (200, 200))
+    os.utime("clusters_meta.tsv", (200, 200))
 
     forced_result = CliRunner().invoke(app, ["build-library", "-f"])
 
     assert forced_result.exit_code == 0
     assert Path("go_graph.pkl").stat().st_mtime > 200
     assert Path("accession_mf_go.tsv").stat().st_mtime > 200
+    assert Path("accession.fasta").stat().st_mtime > 200
+    assert Path("accession.fasta.idx").stat().st_mtime > 200
     assert Path("prosig_motifs.tsv").stat().st_mtime > 200
-    assert Path("go_clusters.tsv").stat().st_mtime > 200
-    assert Path("go_clusters_stats.json").stat().st_mtime > 200
-    assert Path("go_clusters_meta.tsv").stat().st_mtime > 200
+    assert Path("leiden_clusters.tsv").stat().st_mtime > 200
+    assert Path("leiden_clusters_stats.json").stat().st_mtime > 200
+    assert Path("leiden_clusters_meta.tsv").stat().st_mtime > 200
+    assert Path("clusters.tsv").stat().st_mtime > 200
+    assert Path("clusters_stats.json").stat().st_mtime > 200
+    assert Path("clusters_meta.tsv").stat().st_mtime > 200
     assert Path("cluster_config.yaml").stat().st_mtime == 100
 
 
@@ -752,26 +841,38 @@ DR   GO; GO:0008150; P:biological_process; NAS:UniProtKB.
 DR   GO; GO:0005575; C:cellular_component; NAS:UniProtKB.
 DR   GO; GO:0008150; P:biological_process; EXP:UniProtKB.
 DR   GO; GO:0005575; C:cellular_component; IDA:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     AAAAAAAAAA
 //
 ID   TEST2                  Reviewed;         10 AA.
 AC   P00002;
 DR   GO; GO:0000003; F:sibling activity; IEA:InterPro.
 DR   GO; GO:0005575; C:cellular_component; IEA:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     BBBBBBBBBB
 //
 ID   TEST3                  Reviewed;         10 AA.
 AC   P00003;
 DR   GO; GO:0008150; P:biological_process; EXP:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     CCCCCCCCCC
 //
 ID   TEST4                  Reviewed;         10 AA.
 AC   P00004;
 DR   GO; GO:9999999; F:missing activity; IDA:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     DDDDDDDDDD
 //
 ID   TEST5                  Reviewed;         10 AA.
 AC   P00005;
 DR   GO; GO:0000003; F:sibling activity; IMP:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     EEEEEEEEEE
 //
 ID   TEST6                  Reviewed;         10 AA.
 AC   P00006;
 DR   GO; GO:0000004; F:obsolete activity; IDA:UniProtKB.
+SQ   SEQUENCE   10 AA;
+     FFFFFFFFFF
 //
 """
