@@ -33,8 +33,10 @@ def test_build_library_help_includes_options() -> None:
     assert "--motif-out" in result.stdout
     assert "--write-report" in result.stdout
     assert "--role-map" in result.stdout
+    assert "--leiden-cluster-out" in result.stdout
     assert "--cluster-out" in result.stdout
     assert "--cluster-config" in result.stdout
+    assert "--min-cluster-similarity" in result.stdout
     assert "--cluster-neighbors" not in result.stdout
     assert "--cluster-resolution" not in result.stdout
     assert "--cluster-stats-out" not in result.stdout
@@ -59,3 +61,13 @@ def test_log_level_option_suppresses_info_logs() -> None:
 
     assert result.exit_code == 0
     assert "[INFO]:" not in result.output
+
+
+def test_build_library_rejects_invalid_min_cluster_similarity() -> None:
+    result = CliRunner().invoke(
+        app,
+        ["build-library", "--min-cluster-similarity", "0"],
+    )
+
+    assert result.exit_code != 0
+    assert "--min-cluster-similarity" in result.output

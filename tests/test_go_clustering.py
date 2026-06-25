@@ -10,6 +10,7 @@ from prosig.go.clustering import (
     cluster_accessions_by_go,
     knn_edges_from_go_similarity,
     parse_cluster_config,
+    refine_go_clusters_complete_linkage,
 )
 from prosig.go.similarity import build_fast_go_similarity_index
 
@@ -66,9 +67,9 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
         max_posting_fraction=1.0,
     )
 
-    assert result.clustered_accessions == 3
+    assert result.clustered_accessions == 2
     assert result.input_accessions == 4
-    assert result.excluded_accessions == 1
+    assert result.excluded_accessions == 2
     assert result.input_accessions == (
         result.clustered_accessions + result.excluded_accessions
     )
@@ -80,10 +81,11 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     assert "P1\tcluster_" in cluster_out.read_text(encoding="utf-8")
     stats = json.loads(stats_out.read_text(encoding="utf-8"))
     assert stats["algorithm"] == "go_set_similarity_knn_leiden"
-    assert stats["clustered_accessions"] == 3
+    assert stats["clustered_accessions"] == 2
     assert stats["input_accessions"] == 4
     assert stats["cleaned_accessions"] == 3
-    assert stats["excluded_accessions"] == 1
+    assert stats["excluded_accessions"] == 2
+    assert stats["min_similarity"] == 0.5
     assert stats["input_accessions"] == (
         stats["clustered_accessions"] + stats["excluded_accessions"]
     )
@@ -92,8 +94,19 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     assert stats["lin_matrix"]["storage"] == "memory"
     assert stats["profile_cache"]["budget_mb"] == 1
     meta_lines = meta_out.read_text(encoding="utf-8").splitlines()
-    assert meta_lines[0] == "cluster_id\tincluster_sim\tcomposed_description"
+    assert meta_lines[0] == (
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_description"
+    )
     assert any(line.startswith("cluster_0001\t") for line in meta_lines[1:])
+    meta_rows = [line.split("\t") for line in meta_lines[1:]]
+    assert sum(int(row[4]) for row in meta_rows) == result.clustered_accessions
+    for row in meta_rows:
+        sim_ave, sim_min, sim_max = row[1:4]
+        if int(row[4]) == 1:
+            assert (sim_ave, sim_min, sim_max) == ("NA", "NA", "NA")
+        else:
+            assert all(len(value) == 7 and value.count(".") == 1 for value in row[1:4])
+            assert float(sim_min) <= float(sim_ave) <= float(sim_max)
 
 
 def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> None:
@@ -109,6 +122,7 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
                 "term_cache_size_mb: 16",
                 "profile_cache_size_mb: 8",
                 "min_informative_ic: 0.75",
+                "min_similarity: 0.65",
                 "max_posting_fraction: 0.2",
                 "max_posting_size: 50",
             ]
@@ -127,8 +141,20 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
     assert config.term_cache_size_mb == 16
     assert config.profile_cache_size_mb == 8
     assert config.min_informative_ic == 0.75
+    assert config.min_similarity == 0.65
     assert config.max_posting_fraction == 0.2
     assert config.max_posting_size == 50
+
+    default_config_path = tmp_path / "default_cluster_config.yaml"
+    default_config_path.write_text("", encoding="utf-8")
+    assert parse_cluster_config(default_config_path).resolution == 2.0
+    assert parse_cluster_config(default_config_path).min_similarity == 0.5
+    assert parse_cluster_config(default_config_path).stats_file == (
+        "leiden_clusters_stats.json"
+    )
+    assert parse_cluster_config(default_config_path).meta_file == (
+        "leiden_clusters_meta.tsv"
+    )
 
     config_path.write_text("max_posting_fraction: 2\n", encoding="utf-8")
     with pytest.raises(ValueError, match="max posting fraction"):
@@ -140,6 +166,14 @@ def test_parse_cluster_config_reads_flat_yaml_and_validates(tmp_path: Path) -> N
 
     config_path.write_text("resolution: 0\n", encoding="utf-8")
     with pytest.raises(ValueError, match="cluster resolution"):
+        parse_cluster_config(config_path)
+
+    config_path.write_text("min_similarity: 0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="minimum similarity"):
+        parse_cluster_config(config_path)
+
+    config_path.write_text("min_similarity: 1.1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="minimum similarity"):
         parse_cluster_config(config_path)
 
 
@@ -175,6 +209,119 @@ def test_identical_profile_ties_use_accession_order() -> None:
     assert (min(p5_index, p1_index), max(p5_index, p1_index)) in edges
     assert (min(p5_index, p2_index), max(p5_index, p2_index)) in edges
     assert all(weight == 1.0 for weight in edges.values())
+
+
+def test_knn_edges_enforce_inclusive_minimum_similarity() -> None:
+    index = build_fast_go_similarity_index(_small_artifact())
+    accessions = ["P1", "P2"]
+    accession_terms = {
+        "P1": ("GO:0000002",),
+        "P2": ("GO:0000003",),
+    }
+    candidate_index = build_candidate_index(
+        go_index=index,
+        accessions=accessions,
+        accession_terms=accession_terms,
+        max_posting_fraction=1.0,
+    )
+
+    included_edges = knn_edges_from_go_similarity(
+        go_index=index,
+        accessions=accessions,
+        accession_terms=accession_terms,
+        candidate_index=candidate_index,
+        neighbors=1,
+        min_similarity=0.4,
+    )
+    excluded_edges = knn_edges_from_go_similarity(
+        go_index=index,
+        accessions=accessions,
+        accession_terms=accession_terms,
+        candidate_index=candidate_index,
+        neighbors=1,
+        min_similarity=0.400001,
+    )
+
+    assert included_edges == {(0, 1): pytest.approx(0.4)}
+    assert excluded_edges == {}
+
+
+def test_complete_linkage_refines_leiden_clusters_and_keeps_singletons(
+    tmp_path: Path,
+) -> None:
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    leiden_clusters = tmp_path / "leiden_clusters.tsv"
+    clusters_out = tmp_path / "clusters.tsv"
+    meta_out = tmp_path / "clusters_meta.tsv"
+    stats_out = tmp_path / "clusters_stats.json"
+    accession_go.write_text(
+        "P1\tGO:0000002\n"
+        "P2\tGO:0000003\n"
+        "P3\tGO:0000001\n"
+        "P4\tGO:0000002\n",
+        encoding="utf-8",
+    )
+    leiden_clusters.write_text(
+        "member_id\tcluster_id\n"
+        "P1\tcluster_0001\n"
+        "P2\tcluster_0001\n"
+        "P3\tcluster_0001\n"
+        "P4\tcluster_0002\n",
+        encoding="utf-8",
+    )
+
+    result = refine_go_clusters_complete_linkage(
+        accession_go,
+        leiden_clusters,
+        go_artifact=_small_artifact(),
+        go_graph_file=tmp_path / "go_graph.pkl",
+        output_file=clusters_out,
+        meta_file=meta_out,
+        stats_file=stats_out,
+        min_cluster_similarity=0.5,
+        profile_cache_size_mb=1,
+    )
+
+    assert result.clustered_accessions == 4
+    assert result.leiden_clusters == 2
+    assert result.refined_clusters == 3
+    assert result.leiden_singletons == 1
+    assert result.refined_singletons == 2
+    assert result.leiden_clusters_split == 1
+    assert result.refinement_pairs_scored == 3
+    assert len(clusters_out.read_text(encoding="utf-8").splitlines()) == 5
+    meta_rows = [
+        line.split("\t")
+        for line in meta_out.read_text(encoding="utf-8").splitlines()[1:]
+    ]
+    assert sum(int(row[4]) == 1 for row in meta_rows) == 2
+    assert all(
+        row[2] == "NA" or float(row[2]) >= 0.5
+        for row in meta_rows
+    )
+    stats = json.loads(stats_out.read_text(encoding="utf-8"))
+    assert stats["algorithm"] == "go_set_similarity_leiden_complete_linkage"
+    assert stats["min_cluster_similarity"] == 0.5
+    assert stats["leiden_singletons"] == 1
+    assert stats["refined_singletons"] == 2
+
+
+def test_complete_linkage_validates_minimum_similarity(tmp_path: Path) -> None:
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    leiden_clusters = tmp_path / "leiden_clusters.tsv"
+    accession_go.write_text("P1\tGO:0000002\n", encoding="utf-8")
+    leiden_clusters.write_text(
+        "member_id\tcluster_id\nP1\tcluster_0001\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="minimum cluster similarity"):
+        refine_go_clusters_complete_linkage(
+            accession_go,
+            leiden_clusters,
+            go_artifact=_small_artifact(),
+            min_cluster_similarity=0.0,
+        )
 
 
 def _small_artifact() -> dict:

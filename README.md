@@ -37,11 +37,12 @@ MF GO terms for later diagnostics and GO set similarity.
 `build-library` skips derived artifacts that are newer than their dependencies.
 Use `--force` or `-f` to rebuild them anyway.
 
-Planned GO accession clustering for `build-library` is specified in
-`docs/specs/go_accession_clustering.md`. It builds a sparse GO-set similarity
-k-nearest-neighbor graph from `go_graph.pkl` and `accession_mf_go.tsv`, runs
-Leiden community detection, and writes `go_clusters.tsv` only when the cluster
-artifact is missing or older than its dependencies.
+GO accession clustering builds a sparse GO-set similarity k-nearest-neighbor
+graph, writes freshness-managed Leiden artifacts (`leiden_clusters.tsv` and
+`leiden_clusters_meta.tsv`), then unconditionally refines those communities
+with complete linkage. Final outputs are `clusters.tsv` and
+`clusters_meta.tsv`. Use `--min-cluster-similarity` to set the required
+all-pairs similarity floor; the default is `0.25`.
 
 ## Diagnostic Inspection
 
@@ -59,6 +60,13 @@ prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-st
 prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
 prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
 ```
+
+`build-library` also derives `accession.fasta` and
+`accession.fasta.idx` from the configured `uniprot_sprot.dat.gz`. FASTA labels
+are primary Swiss-Prot accessions, and the index stores byte offsets for fast
+internal sequence lookup. The pair is rebuilt when either artifact is missing
+or older than the Swiss-Prot source. The index records FASTA size and
+modification time so edited FASTA files are rejected until the pair is rebuilt.
 
 The inspect surface is intended to grow with artifact diagnostics for
 accessions, motifs, clustering inputs, and standalone similarity calculations.

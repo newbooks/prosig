@@ -19,9 +19,11 @@ from prosig.go.build import (
 from prosig.go.clustering import (
     cluster_accessions_by_go,
     parse_cluster_config,
+    refine_go_clusters_complete_linkage,
 )
 from prosig.io.freshness import artifact_is_stale
 from prosig.motifs.prosite import write_prosig_motif_library
+from prosig.sequences import write_swissprot_sequence_artifacts
 
 ROLE_MAP_TEMPLATE = files("prosig.data").joinpath("role_map.yaml.template")
 CLUSTER_CONFIG_TEMPLATE = files("prosig.data").joinpath(
@@ -79,13 +81,30 @@ def build_library(
             ),
         ),
     ] = Path("role_map.yaml"),
+    leiden_cluster_out: Annotated[
+        Path,
+        typer.Option(
+            "--leiden-cluster-out",
+            help="Path to write intermediate Leiden GO accession clusters.",
+        ),
+    ] = Path("leiden_clusters.tsv"),
     cluster_out: Annotated[
         Path,
         typer.Option(
             "--cluster-out",
-            help="Path to write GO accession clusters.",
+            help="Path to write complete-linkage refined GO accession clusters.",
         ),
-    ] = Path("go_clusters.tsv"),
+    ] = Path("clusters.tsv"),
+    min_cluster_similarity: Annotated[
+        float,
+        typer.Option(
+            "--min-cluster-similarity",
+            help=(
+                "Minimum AMB Lin similarity required for every accession pair "
+                "in a refined cluster."
+            ),
+        ),
+    ] = 0.25,
     cluster_config: Annotated[
         Path,
         typer.Option(
@@ -107,6 +126,11 @@ def build_library(
 ) -> None:
     """Build the compact GO graph, IC artifact, and ProSig motif library."""
     logger = get_logger()
+    if min_cluster_similarity <= 0.0 or min_cluster_similarity > 1.0:
+        raise typer.BadParameter(
+            "must be greater than 0 and at most 1",
+            param_hint="--min-cluster-similarity",
+        )
     if ensure_role_map_from_template(role_map, ROLE_MAP_TEMPLATE):
         logger.info("Created starter GO semantic role map: %s", role_map)
     else:
@@ -190,42 +214,67 @@ def build_library(
         )
 
     accession_mf_go = go_out.parent / "accession_mf_go.tsv"
-    cluster_dependencies = [go_out, accession_mf_go, cluster_config]
-    cluster_stats_out = Path(parsed_cluster_config.stats_file)
-    cluster_meta_out = Path(parsed_cluster_config.meta_file)
-    cluster_outputs = [cluster_out, cluster_stats_out, cluster_meta_out]
+    leiden_dependencies = [go_out, accession_mf_go, cluster_config]
+    leiden_stats_out = Path(parsed_cluster_config.stats_file)
+    leiden_meta_out = Path(parsed_cluster_config.meta_file)
+    leiden_outputs = [leiden_cluster_out, leiden_stats_out, leiden_meta_out]
     if any(
-        artifact_is_stale(output, cluster_dependencies, force=force)
-        for output in cluster_outputs
+        artifact_is_stale(output, leiden_dependencies, force=force)
+        for output in leiden_outputs
     ):
-        cluster_result = cluster_accessions_by_go(
+        leiden_result = cluster_accessions_by_go(
             accession_mf_go,
             go_artifact=artifact,
             go_graph_file=go_out,
-            output_file=cluster_out,
-            stats_file=cluster_stats_out,
-            meta_file=cluster_meta_out,
+            output_file=leiden_cluster_out,
+            stats_file=leiden_stats_out,
+            meta_file=leiden_meta_out,
             resolution=parsed_cluster_config.resolution,
             neighbors=parsed_cluster_config.neighbors,
             term_cache_size_mb=parsed_cluster_config.term_cache_size_mb,
             profile_cache_size_mb=parsed_cluster_config.profile_cache_size_mb,
             min_informative_ic=parsed_cluster_config.min_informative_ic,
+            min_similarity=parsed_cluster_config.min_similarity,
             max_posting_fraction=parsed_cluster_config.max_posting_fraction,
             max_posting_size=parsed_cluster_config.max_posting_size,
             progress_interval_seconds=parsed_cluster_config.progress_interval_seconds,
         )
         logger.info(
-            "Wrote GO clusters to %s with %s clustered accessions in %s clusters",
-            cluster_result.output_file,
-            format_log_number(cluster_result.clustered_accessions),
-            format_log_number(cluster_result.clusters),
+            "Wrote Leiden GO clusters to %s with %s clustered accessions in "
+            "%s communities",
+            leiden_result.output_file,
+            format_log_number(leiden_result.clustered_accessions),
+            format_log_number(leiden_result.clusters),
         )
     else:
         logger.info(
-            "Skipping GO clustering: %s is current with %s",
-            _format_dependencies(cluster_outputs),
-            _format_dependencies(cluster_dependencies),
+            "Skipping Leiden GO clustering: %s is current with %s",
+            _format_dependencies(leiden_outputs),
+            _format_dependencies(leiden_dependencies),
         )
+
+    cluster_meta_out = cluster_out.with_name(f"{cluster_out.stem}_meta.tsv")
+    cluster_stats_out = cluster_out.with_name(f"{cluster_out.stem}_stats.json")
+    refinement_result = refine_go_clusters_complete_linkage(
+        accession_mf_go,
+        leiden_cluster_out,
+        go_artifact=artifact,
+        go_graph_file=go_out,
+        output_file=cluster_out,
+        meta_file=cluster_meta_out,
+        stats_file=cluster_stats_out,
+        min_cluster_similarity=min_cluster_similarity,
+        profile_cache_size_mb=parsed_cluster_config.profile_cache_size_mb,
+        progress_interval_seconds=parsed_cluster_config.progress_interval_seconds,
+    )
+    logger.info(
+        "Wrote refined GO clusters to %s with %s accessions in %s clusters; "
+        "singletons=%s",
+        refinement_result.output_file,
+        format_log_number(refinement_result.clustered_accessions),
+        format_log_number(refinement_result.refined_clusters),
+        format_log_number(refinement_result.refined_singletons),
+    )
 
 
 def _load_go_artifact(path: Path) -> dict:
@@ -300,6 +349,35 @@ def _refresh_go_side_artifacts(
         logger.info(
             "Skipping accession MF GO terms: %s is current with %s",
             accession_mf_go_out,
+            swissprot,
+        )
+
+    sequence_fasta_out = go_out.parent / "accession.fasta"
+    sequence_index_out = go_out.parent / "accession.fasta.idx"
+    sequence_outputs = [sequence_fasta_out, sequence_index_out]
+    if any(
+        artifact_is_stale(output, [swissprot], force=force)
+        for output in sequence_outputs
+    ):
+        logger.info(
+            "Writing Swiss-Prot sequence FASTA and index: %s, %s",
+            sequence_fasta_out,
+            sequence_index_out,
+        )
+        result = write_swissprot_sequence_artifacts(
+            swissprot,
+            sequence_fasta_out,
+            sequence_index_out,
+        )
+        logger.info(
+            "Wrote %s Swiss-Prot sequences with %s residues",
+            format_log_number(result.sequences),
+            format_log_number(result.residues),
+        )
+    else:
+        logger.info(
+            "Skipping Swiss-Prot sequence FASTA and index: %s is current with %s",
+            _format_dependencies(sequence_outputs),
             swissprot,
         )
 

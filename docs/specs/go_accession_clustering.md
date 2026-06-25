@@ -6,6 +6,10 @@ Cluster Swiss-Prot primary accessions by Molecular Function GO-set similarity
 and write a stable `member_id` / `cluster_id` table for downstream motif
 discovery.
 
+The implemented second-stage complete-linkage refinement is specified
+separately in `go_cluster_complete_linkage_refinement.md`. This document covers
+the independently persisted Leiden stage.
+
 This adapts the relevant design from `../pclass`:
 
 - `../pclass/src/pclass/datasets/go_clusters.py`
@@ -74,7 +78,7 @@ Rules:
 Primary output:
 
 ```text
-go_clusters.tsv
+leiden_clusters.tsv
 ```
 
 Format:
@@ -96,8 +100,8 @@ Rules:
 Recommended secondary output:
 
 ```text
-go_clusters_stats.json
-go_clusters_meta.tsv
+leiden_clusters_stats.json
+leiden_clusters_meta.tsv
 ```
 
 Fields:
@@ -107,10 +111,11 @@ Fields:
   "algorithm": "go_set_similarity_knn_leiden",
   "similarity": "lin_amb",
   "partition": "RBConfigurationVertexPartition",
-  "resolution": 1.0,
+  "resolution": 2.0,
   "neighbors": 10,
   "seed": 0,
   "min_informative_ic": 0.5,
+  "min_similarity": 0.5,
   "max_posting_fraction": 0.05,
   "max_posting_size": 0,
   "input_accessions": 123,
@@ -152,17 +157,21 @@ parameter provenance.
 Cluster metadata output:
 
 ```text
-cluster_id	incluster_sim	composed_description
-cluster_0001	0.8475	
-cluster_0002	NA	
+cluster_id	sim_ave	sim_min	sim_max	size	composed_description
+cluster_0001	0.84750	0.72000	1.00000	8
+cluster_0002	NA	NA	NA	1
 ```
 
 Rules:
 
-- `cluster_id`: cluster identifier from `go_clusters.tsv`
-- `incluster_sim`: average AMB Lin similarity over all unique accession pairs
-  in the cluster, excluding self-pairs
-- singleton clusters use `NA`
+- `cluster_id`: cluster identifier from `leiden_clusters.tsv`
+- `sim_ave`: average AMB Lin similarity over all unique accession pairs in the
+  cluster, excluding self-pairs
+- `sim_min`: minimum AMB Lin similarity over those accession pairs
+- `sim_max`: maximum AMB Lin similarity over those accession pairs
+- `size`: number of accessions in the cluster
+- similarity values are written using `%7.5f` formatting
+- singleton clusters use `NA` for all similarity columns
 - unavailable accession-pair similarities contribute `0.0`
 - `composed_description` is reserved for the future GO description composer and
   is currently written as an empty value
@@ -176,15 +185,25 @@ prosig build-library \
   --go-obo go-basic.obo \
   --swissprot uniprot_sprot.dat.gz \
   --go-out go_graph.pkl \
-  --cluster-out go_clusters.tsv \
+  --leiden-cluster-out leiden_clusters.tsv \
+  --cluster-out clusters.tsv \
+  --min-cluster-similarity 0.25 \
   --cluster-config cluster_config.yaml
 ```
 
 Recommended options:
 
 ```text
+--leiden-cluster-out PATH
+    Path to write intermediate Leiden communities.
+    Default: leiden_clusters.tsv.
+
 --cluster-out PATH
-    Path to write GO accession clusters. Default: go_clusters.tsv.
+    Path to write complete-linkage refined clusters. Default: clusters.tsv.
+
+--min-cluster-similarity FLOAT
+    Minimum similarity required for every pair in a refined cluster.
+    Default: 0.25.
 
 --cluster-config PATH
     Path to GO clustering config. Created from the starter template when
@@ -207,14 +226,15 @@ overwrite an existing config file.
 Default template:
 
 ```yaml
-stats_file: go_clusters_stats.json
-meta_file: go_clusters_meta.tsv
+stats_file: leiden_clusters_stats.json
+meta_file: leiden_clusters_meta.tsv
 neighbors: 10
-resolution: 1.0
+resolution: 2.0
 progress_interval_seconds: 60.0
 term_cache_size_mb: 256
 profile_cache_size_mb: 128
 min_informative_ic: 0.5
+min_similarity: 0.5
 max_posting_fraction: 0.05
 max_posting_size: 0
 ```
@@ -233,7 +253,7 @@ neighbors
     Default: 10. Must be at least 1.
 
 resolution
-    Leiden resolution parameter. Default: 1.0. Must be greater than 0.
+    Leiden resolution parameter. Default: 2.0. Must be greater than 0.
 
 progress_interval_seconds
     Seconds between long-running kNN progress logs. Must be > 0.
@@ -246,6 +266,10 @@ profile_cache_size_mb
 
 min_informative_ic
     Minimum ancestor IC for candidate-index terms. Must be >= 0.
+
+min_similarity
+    Minimum AMB Lin similarity required to create a kNN graph edge.
+    Default: 0.5. Must be in (0, 1]. The threshold is inclusive.
 
 max_posting_fraction
     Drop candidate-index terms whose accession posting list covers more than
@@ -261,10 +285,10 @@ max_posting_size
 Clustering should run when any of these conditions is true:
 
 - `--force` is set
-- `cluster_out` does not exist
-- `cluster_out` exists but is older than `go_graph.pkl`
-- `cluster_out` exists but is older than `accession_mf_go.tsv`
-- `cluster_out` exists but is older than `cluster_config.yaml`
+- `leiden_cluster_out` does not exist
+- `leiden_cluster_out` exists but is older than `go_graph.pkl`
+- `leiden_cluster_out` exists but is older than `accession_mf_go.tsv`
+- `leiden_cluster_out` exists but is older than `cluster_config.yaml`
 - the configured `stats_file` does not exist
 - the configured `stats_file` exists but is older than `go_graph.pkl`,
   `accession_mf_go.tsv`, or `cluster_config.yaml`
@@ -506,14 +530,15 @@ def cluster_accessions_by_go(
     accession_go_file: str | Path,
     *,
     go_graph_file: str | Path = "go_graph.pkl",
-    output_file: str | Path = "go_clusters.tsv",
-    stats_file: str | Path | None = "go_clusters_stats.json",
-    meta_file: str | Path | None = "go_clusters_meta.tsv",
-    resolution: float = 1.0,
+    output_file: str | Path = "leiden_clusters.tsv",
+    stats_file: str | Path | None = "leiden_clusters_stats.json",
+    meta_file: str | Path | None = "leiden_clusters_meta.tsv",
+    resolution: float = 2.0,
     neighbors: int = 10,
     term_cache_size_mb: int = 256,
     profile_cache_size_mb: int = 128,
     min_informative_ic: float = 0.5,
+    min_similarity: float = 0.5,
     max_posting_fraction: float = 0.05,
     max_posting_size: int = 0,
     progress_interval_seconds: float = 60.0,
@@ -592,16 +617,16 @@ runs observable without flooding logs.
 
 ### Empty Input
 
-Write a header-only `go_clusters.tsv` and stats with zero counts.
+Write a header-only `leiden_clusters.tsv` and stats with zero counts.
 
 ### One Valid Accession
 
-Write a header-only `go_clusters.tsv`. A single accession has no positive edge
+Write a header-only `leiden_clusters.tsv`. A single accession has no positive edge
 and should be excluded under the initial no-isolate rule.
 
 ### No Positive Edges
 
-Write a header-only `go_clusters.tsv`, log zero clusters, and write stats.
+Write a header-only `leiden_clusters.tsv`, log zero clusters, and write stats.
 
 ### Invalid Parameters
 
@@ -612,6 +637,7 @@ Raise `ValueError` before doing work:
 - `term_cache_size_mb < 0`
 - `profile_cache_size_mb < 0`
 - `min_informative_ic < 0`
+- `min_similarity <= 0` or `min_similarity > 1`
 - `max_posting_fraction <= 0` or `max_posting_fraction > 1`
 - `max_posting_size < 0`
 - `progress_interval_seconds <= 0`
@@ -673,7 +699,7 @@ Add tests for `prosig.go.clustering`:
 
 Add CLI tests for `build-library`:
 
-- first run builds `go_clusters.tsv`
+- first run builds `leiden_clusters.tsv`
 - second run skips clustering when cluster outputs are newer than
   `go_graph.pkl` and `accession_mf_go.tsv`
 - missing `cluster_out` triggers clustering

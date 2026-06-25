@@ -103,17 +103,25 @@ construction rather than exposing a separate top-level clustering command.
 
 The clustering workflow consumes `go_graph.pkl` and
 `accession_mf_go.tsv`, builds a sparse GO-set similarity kNN graph, and runs
-Leiden community detection to produce:
+Leiden community detection to produce freshness-managed intermediates:
 
 ```text
-go_clusters.tsv
-go_clusters_stats.json
+leiden_clusters.tsv
+leiden_clusters_meta.tsv
+leiden_clusters_stats.json
 ```
 
-The command rebuilds these cluster artifacts only when they are missing,
-older than their dependencies, or explicitly forced. See
-`go_accession_clustering.md` for the algorithm, output formats, CLI options,
-dependency policy, and tests.
+It then unconditionally runs complete-linkage refinement and writes:
+
+```text
+clusters.tsv
+clusters_meta.tsv
+clusters_stats.json
+```
+
+`--min-cluster-similarity FLOAT` controls the final all-pairs similarity floor
+and defaults to `0.25`. `--leiden-cluster-out` and `--cluster-out` control the
+intermediate and final membership paths respectively.
 
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when

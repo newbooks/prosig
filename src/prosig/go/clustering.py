@@ -31,9 +31,11 @@ PROGRESS_LOG_INTERVAL_SECONDS = 60.0
 DEFAULT_TERM_CACHE_SIZE_MB = 256
 DEFAULT_PROFILE_CACHE_SIZE_MB = 128
 DEFAULT_MIN_INFORMATIVE_IC = 0.5
+DEFAULT_MIN_SIMILARITY = 0.5
+DEFAULT_MIN_CLUSTER_SIMILARITY = 0.25
 DEFAULT_MAX_POSTING_FRACTION = 0.05
 DEFAULT_NEIGHBORS = 10
-DEFAULT_RESOLUTION = 1.0
+DEFAULT_RESOLUTION = 2.0
 BYTES_PER_MEGABYTE = 1_048_576
 LEIDEN_SEED = 0
 
@@ -65,17 +67,42 @@ class GoClusteringResult:
 
 
 @dataclass(frozen=True)
+class CompleteLinkageRefinementResult:
+    """Written complete-linkage outputs and refinement summary counts."""
+
+    output_file: Path
+    stats_file: Path | None
+    meta_file: Path
+    clustered_accessions: int
+    leiden_clusters: int
+    refined_clusters: int
+    leiden_singletons: int
+    refined_singletons: int
+    leiden_clusters_split: int
+    refinement_pairs_scored: int
+
+
+@dataclass(frozen=True)
+class _RefinedCluster:
+    members: tuple[str, ...]
+    sim_ave: float | None
+    sim_min: float | None
+    sim_max: float | None
+
+
+@dataclass(frozen=True)
 class GoClusteringConfig:
     """User-editable GO clustering tuning values."""
 
-    stats_file: str = "go_clusters_stats.json"
-    meta_file: str = "go_clusters_meta.tsv"
+    stats_file: str = "leiden_clusters_stats.json"
+    meta_file: str = "leiden_clusters_meta.tsv"
     neighbors: int = DEFAULT_NEIGHBORS
     resolution: float = DEFAULT_RESOLUTION
     progress_interval_seconds: float = PROGRESS_LOG_INTERVAL_SECONDS
     term_cache_size_mb: int = DEFAULT_TERM_CACHE_SIZE_MB
     profile_cache_size_mb: int = DEFAULT_PROFILE_CACHE_SIZE_MB
     min_informative_ic: float = DEFAULT_MIN_INFORMATIVE_IC
+    min_similarity: float = DEFAULT_MIN_SIMILARITY
     max_posting_fraction: float = DEFAULT_MAX_POSTING_FRACTION
     max_posting_size: int = 0
 
@@ -85,14 +112,15 @@ def cluster_accessions_by_go(
     *,
     go_artifact: dict[str, Any] | None = None,
     go_graph_file: str | Path = "go_graph.pkl",
-    output_file: str | Path = "go_clusters.tsv",
-    stats_file: str | Path | None = "go_clusters_stats.json",
-    meta_file: str | Path | None = "go_clusters_meta.tsv",
+    output_file: str | Path = "leiden_clusters.tsv",
+    stats_file: str | Path | None = "leiden_clusters_stats.json",
+    meta_file: str | Path | None = "leiden_clusters_meta.tsv",
     resolution: float = DEFAULT_RESOLUTION,
     neighbors: int = DEFAULT_NEIGHBORS,
     term_cache_size_mb: int = DEFAULT_TERM_CACHE_SIZE_MB,
     profile_cache_size_mb: int = DEFAULT_PROFILE_CACHE_SIZE_MB,
     min_informative_ic: float = DEFAULT_MIN_INFORMATIVE_IC,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
     max_posting_fraction: float = DEFAULT_MAX_POSTING_FRACTION,
     max_posting_size: int = 0,
     progress_interval_seconds: float = PROGRESS_LOG_INTERVAL_SECONDS,
@@ -104,6 +132,7 @@ def cluster_accessions_by_go(
         term_cache_size_mb=term_cache_size_mb,
         profile_cache_size_mb=profile_cache_size_mb,
         min_informative_ic=min_informative_ic,
+        min_similarity=min_similarity,
         max_posting_fraction=max_posting_fraction,
         max_posting_size=max_posting_size,
         progress_interval_seconds=progress_interval_seconds,
@@ -164,6 +193,7 @@ def cluster_accessions_by_go(
         accession_terms=accession_terms,
         candidate_index=candidate_index,
         neighbors=neighbors,
+        min_similarity=min_similarity,
         profile_pair_cache=profile_pair_cache,
         lin_similarity_matrix=lin_similarity_matrix,
         progress_interval_seconds=progress_interval_seconds,
@@ -193,15 +223,21 @@ def cluster_accessions_by_go(
     if excluded_accession_count:
         logger.info(
             "Excluded %s accessions during GO/IC filtering or because they had "
-            "no determinable positive GO-similarity edges",
+            "no GO-similarity edges meeting the minimum similarity",
             f"{excluded_accession_count:,}",
         )
     logger.info(
-        "Clustered %s accessions into %s GO clusters with k=%s and resolution=%.3f",
+        "Clustered %s accessions into %s GO clusters with k=%s, "
+        "minimum similarity=%.3f, and resolution=%.3f",
         f"{len(active_accessions):,}",
         f"{cluster_count:,}",
         f"{neighbors:,}",
+        min_similarity,
         resolution,
+    )
+    logger.info(
+        "Leiden singleton clusters: %s",
+        f"{_cluster_singleton_count(cluster_by_accession):,}",
     )
     _log_cluster_size_summary(logger, cluster_by_accession)
     if stats_path is not None:
@@ -213,6 +249,7 @@ def cluster_accessions_by_go(
             resolution=resolution,
             neighbors=neighbors,
             min_informative_ic=min_informative_ic,
+            min_similarity=min_similarity,
             max_posting_fraction=max_posting_fraction,
             max_posting_size=max_posting_size,
             input_accessions=input_accessions,
@@ -246,6 +283,184 @@ def cluster_accessions_by_go(
     )
 
 
+def refine_go_clusters_complete_linkage(
+    accession_go_file: str | Path,
+    leiden_cluster_file: str | Path,
+    *,
+    go_artifact: dict[str, Any] | None = None,
+    go_graph_file: str | Path = "go_graph.pkl",
+    output_file: str | Path = "clusters.tsv",
+    meta_file: str | Path = "clusters_meta.tsv",
+    stats_file: str | Path | None = "clusters_stats.json",
+    min_cluster_similarity: float = DEFAULT_MIN_CLUSTER_SIMILARITY,
+    profile_cache_size_mb: int = DEFAULT_PROFILE_CACHE_SIZE_MB,
+    progress_interval_seconds: float = PROGRESS_LOG_INTERVAL_SECONDS,
+) -> CompleteLinkageRefinementResult:
+    """Refine Leiden communities with an all-pairs complete-linkage threshold."""
+    _validate_refinement_parameters(
+        min_cluster_similarity=min_cluster_similarity,
+        profile_cache_size_mb=profile_cache_size_mb,
+        progress_interval_seconds=progress_interval_seconds,
+    )
+    logger = logging.getLogger(LOGGER_NAME)
+    accession_go_path = Path(accession_go_file)
+    leiden_cluster_path = Path(leiden_cluster_file)
+    go_graph_path = Path(go_graph_file)
+    output_path = Path(output_file)
+    meta_path = Path(meta_file)
+    stats_path = Path(stats_file) if stats_file is not None else None
+    artifact = (
+        go_artifact
+        if go_artifact is not None
+        else _load_go_artifact(go_graph_path)
+    )
+    go_index = build_fast_go_similarity_index(artifact)
+    accession_terms = _valid_accession_terms(
+        go_index,
+        load_accession_mf_go_terms(accession_go_path),
+    )
+    leiden_cluster_by_accession = _load_cluster_tsv(leiden_cluster_path)
+    missing_profiles = sorted(set(leiden_cluster_by_accession) - set(accession_terms))
+    if missing_profiles:
+        preview = ", ".join(missing_profiles[:5])
+        raise ValueError(
+            "Leiden cluster members are missing valid GO profiles: "
+            f"{preview}"
+        )
+
+    lin_similarity_matrix = build_lin_similarity_matrix(
+        go_index,
+        logger=logger,
+        progress_interval_seconds=progress_interval_seconds,
+    )
+    profile_pair_cache = _make_profile_cache(profile_cache_size_mb, logger)
+    members_by_leiden_cluster = _cluster_members(
+        sorted(leiden_cluster_by_accession),
+        leiden_cluster_by_accession,
+    )
+    leiden_singletons = sum(
+        len(members) == 1 for members in members_by_leiden_cluster.values()
+    )
+    logger.info(
+        "Starting complete-linkage refinement of %s Leiden clusters with "
+        "minimum cluster similarity=%.3f; Leiden singletons=%s",
+        f"{len(members_by_leiden_cluster):,}",
+        min_cluster_similarity,
+        f"{leiden_singletons:,}",
+    )
+
+    refined_clusters: list[_RefinedCluster] = []
+    split_clusters = 0
+    refinement_pairs_scored = 0
+    last_log_time = time.monotonic()
+    for cluster_index, cluster_id in enumerate(
+        sorted(members_by_leiden_cluster),
+        start=1,
+    ):
+        members = sorted(members_by_leiden_cluster[cluster_id])
+        community_refined, pair_count = _refine_one_leiden_cluster(
+            go_index=go_index,
+            members=members,
+            accession_terms=accession_terms,
+            min_cluster_similarity=min_cluster_similarity,
+            profile_pair_cache=profile_pair_cache,
+            lin_similarity_matrix=lin_similarity_matrix,
+        )
+        refined_clusters.extend(community_refined)
+        refinement_pairs_scored += pair_count
+        if len(community_refined) > 1:
+            split_clusters += 1
+        if _should_log_progress(
+            last_log_time,
+            interval_seconds=progress_interval_seconds,
+        ):
+            last_log_time = time.monotonic()
+            logger.info(
+                "Refined %s/%s Leiden clusters; final clusters so far=%s",
+                f"{cluster_index:,}",
+                f"{len(members_by_leiden_cluster):,}",
+                f"{len(refined_clusters):,}",
+            )
+
+    refined_clusters.sort(
+        key=lambda cluster: (
+            cluster.members[0],
+            len(cluster.members),
+            cluster.members,
+        )
+    )
+    final_cluster_by_accession: dict[str, str] = {}
+    final_summary_by_cluster: dict[
+        str, tuple[float | None, float | None, float | None]
+    ] = {}
+    for index, cluster in enumerate(refined_clusters, start=1):
+        cluster_id = f"cluster_{index:04d}"
+        for accession in cluster.members:
+            final_cluster_by_accession[accession] = cluster_id
+        final_summary_by_cluster[cluster_id] = (
+            cluster.sim_ave,
+            cluster.sim_min,
+            cluster.sim_max,
+        )
+
+    active_accessions = sorted(final_cluster_by_accession)
+    _write_cluster_tsv(output_path, active_accessions, final_cluster_by_accession)
+    _write_cluster_meta_from_summaries(
+        meta_path,
+        active_accessions=active_accessions,
+        cluster_by_accession=final_cluster_by_accession,
+        summary_by_cluster=final_summary_by_cluster,
+    )
+    refined_singletons = sum(
+        len(cluster.members) == 1 for cluster in refined_clusters
+    )
+    logger.info(
+        "Complete-linkage refinement produced %s clusters from %s Leiden "
+        "clusters; split=%s; final singletons=%s",
+        f"{len(refined_clusters):,}",
+        f"{len(members_by_leiden_cluster):,}",
+        f"{split_clusters:,}",
+        f"{refined_singletons:,}",
+    )
+    _log_cluster_size_summary(logger, final_cluster_by_accession)
+    if stats_path is not None:
+        _write_refinement_stats_json(
+            stats_path,
+            min_cluster_similarity=min_cluster_similarity,
+            clustered_accessions=len(active_accessions),
+            leiden_clusters=len(members_by_leiden_cluster),
+            refined_clusters=len(refined_clusters),
+            leiden_singletons=leiden_singletons,
+            refined_singletons=refined_singletons,
+            leiden_clusters_split=split_clusters,
+            refinement_pairs_scored=refinement_pairs_scored,
+            leiden_cluster_by_accession=leiden_cluster_by_accession,
+            final_cluster_by_accession=final_cluster_by_accession,
+            accession_go_file=accession_go_path,
+            go_graph_file=go_graph_path,
+            leiden_cluster_file=leiden_cluster_path,
+            output_file=output_path,
+            meta_file=meta_path,
+        )
+    logger.info(
+        "Saved complete-linkage GO clusters to %s and metadata to %s",
+        output_path,
+        meta_path,
+    )
+    return CompleteLinkageRefinementResult(
+        output_file=output_path,
+        stats_file=stats_path,
+        meta_file=meta_path,
+        clustered_accessions=len(active_accessions),
+        leiden_clusters=len(members_by_leiden_cluster),
+        refined_clusters=len(refined_clusters),
+        leiden_singletons=leiden_singletons,
+        refined_singletons=refined_singletons,
+        leiden_clusters_split=split_clusters,
+        refinement_pairs_scored=refinement_pairs_scored,
+    )
+
+
 def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
     """Parse the restricted flat cluster_config.yaml structure."""
     values: dict[str, str] = {}
@@ -258,6 +473,7 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
         "term_cache_size_mb",
         "profile_cache_size_mb",
         "min_informative_ic",
+        "min_similarity",
         "max_posting_fraction",
         "max_posting_size",
     }
@@ -275,8 +491,8 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
         values[key] = value
 
     config = GoClusteringConfig(
-        stats_file=values.get("stats_file", "go_clusters_stats.json"),
-        meta_file=values.get("meta_file", "go_clusters_meta.tsv"),
+        stats_file=values.get("stats_file", "leiden_clusters_stats.json"),
+        meta_file=values.get("meta_file", "leiden_clusters_meta.tsv"),
         neighbors=_parse_int_config(values, "neighbors", DEFAULT_NEIGHBORS),
         resolution=_parse_float_config(values, "resolution", DEFAULT_RESOLUTION),
         progress_interval_seconds=_parse_float_config(
@@ -299,6 +515,11 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
             "min_informative_ic",
             DEFAULT_MIN_INFORMATIVE_IC,
         ),
+        min_similarity=_parse_float_config(
+            values,
+            "min_similarity",
+            DEFAULT_MIN_SIMILARITY,
+        ),
         max_posting_fraction=_parse_float_config(
             values,
             "max_posting_fraction",
@@ -316,6 +537,7 @@ def parse_cluster_config(path: str | Path) -> GoClusteringConfig:
         term_cache_size_mb=config.term_cache_size_mb,
         profile_cache_size_mb=config.profile_cache_size_mb,
         min_informative_ic=config.min_informative_ic,
+        min_similarity=config.min_similarity,
         max_posting_fraction=config.max_posting_fraction,
         max_posting_size=config.max_posting_size,
         progress_interval_seconds=config.progress_interval_seconds,
@@ -414,11 +636,14 @@ def knn_edges_from_go_similarity(
     accession_terms: dict[str, tuple[str, ...]],
     candidate_index: CandidateIndex,
     neighbors: int,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
     profile_pair_cache: ProfilePairCache | None = None,
     lin_similarity_matrix: np.ndarray | None = None,
     progress_interval_seconds: float = PROGRESS_LOG_INTERVAL_SECONDS,
 ) -> dict[tuple[int, int], float]:
     """Return sparse undirected kNN edges without storing all pairwise scores."""
+    if min_similarity <= 0.0 or min_similarity > 1.0:
+        raise ValueError("cluster minimum similarity must be in (0, 1]")
     if len(accessions) < 2:
         return {}
 
@@ -491,7 +716,7 @@ def knn_edges_from_go_similarity(
                 profile_pair_cache=profile_pair_cache,
                 lin_similarity_matrix=lin_similarity_matrix,
             )
-            if similarity is not None and similarity > 0.0:
+            if similarity is not None and similarity >= min_similarity:
                 _add_top_candidate(
                     top_candidates,
                     (similarity, other_index),
@@ -541,6 +766,7 @@ def _validate_parameters(
     term_cache_size_mb: int,
     profile_cache_size_mb: int,
     min_informative_ic: float,
+    min_similarity: float,
     max_posting_fraction: float,
     max_posting_size: int,
     progress_interval_seconds: float,
@@ -555,10 +781,26 @@ def _validate_parameters(
         raise ValueError("cluster profile cache size must be non-negative")
     if min_informative_ic < 0.0:
         raise ValueError("cluster minimum informative IC must be non-negative")
+    if min_similarity <= 0.0 or min_similarity > 1.0:
+        raise ValueError("cluster minimum similarity must be in (0, 1]")
     if max_posting_fraction <= 0.0 or max_posting_fraction > 1.0:
         raise ValueError("cluster max posting fraction must be in (0, 1]")
     if max_posting_size < 0:
         raise ValueError("cluster max posting size must be non-negative")
+    if progress_interval_seconds <= 0.0:
+        raise ValueError("cluster progress interval must be greater than 0")
+
+
+def _validate_refinement_parameters(
+    *,
+    min_cluster_similarity: float,
+    profile_cache_size_mb: int,
+    progress_interval_seconds: float,
+) -> None:
+    if min_cluster_similarity <= 0.0 or min_cluster_similarity > 1.0:
+        raise ValueError("minimum cluster similarity must be in (0, 1]")
+    if profile_cache_size_mb < 0:
+        raise ValueError("cluster profile cache size must be non-negative")
     if progress_interval_seconds <= 0.0:
         raise ValueError("cluster progress interval must be greater than 0")
 
@@ -608,6 +850,26 @@ def _load_go_artifact(path: str | Path) -> dict[str, Any]:
     if not isinstance(artifact, dict):
         raise ValueError(f"GO graph pickle must contain a dictionary artifact: {path}")
     return artifact
+
+
+def _load_cluster_tsv(path: str | Path) -> dict[str, str]:
+    cluster_by_accession: dict[str, str] = {}
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "member_id\tcluster_id":
+        raise ValueError(
+            "Cluster TSV must start with header: member_id\\tcluster_id"
+        )
+    for line_number, line in enumerate(lines[1:], start=2):
+        if not line:
+            continue
+        fields = line.split("\t")
+        if len(fields) != 2 or not all(fields):
+            raise ValueError(f"Invalid cluster TSV row {line_number}: {line}")
+        accession, cluster_id = fields
+        if accession in cluster_by_accession:
+            raise ValueError(f"Duplicate cluster member: {accession}")
+        cluster_by_accession[accession] = cluster_id
+    return cluster_by_accession
 
 
 def _valid_accession_terms(
@@ -868,17 +1130,164 @@ def _write_cluster_meta_tsv(
     members_by_cluster = _cluster_members(active_accessions, cluster_by_accession)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     with meta_path.open("w", encoding="utf-8") as handle:
-        handle.write("cluster_id\tincluster_sim\tcomposed_description\n")
+        handle.write(
+            "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\t"
+            "composed_description\n"
+        )
         for cluster_id in sorted(members_by_cluster):
-            similarity = _average_pairwise_cluster_similarity(
+            members = members_by_cluster[cluster_id]
+            sim_ave, sim_min, sim_max = _pairwise_cluster_similarity_summary(
                 go_index,
-                members_by_cluster[cluster_id],
+                members,
                 accession_terms=accession_terms,
                 profile_pair_cache=profile_pair_cache,
                 lin_similarity_matrix=lin_similarity_matrix,
             )
-            similarity_text = "NA" if similarity is None else f"{similarity:.6g}"
-            handle.write(f"{cluster_id}\t{similarity_text}\t\n")
+            similarity_texts = [
+                "NA" if similarity is None else f"{similarity:7.5f}"
+                for similarity in (sim_ave, sim_min, sim_max)
+            ]
+            similarity_columns = "\t".join(similarity_texts)
+            handle.write(
+                f"{cluster_id}\t"
+                f"{similarity_columns}\t"
+                f"{len(members)}\t\n"
+            )
+
+
+def _write_cluster_meta_from_summaries(
+    meta_path: Path,
+    *,
+    active_accessions: list[str],
+    cluster_by_accession: dict[str, str],
+    summary_by_cluster: dict[
+        str, tuple[float | None, float | None, float | None]
+    ],
+) -> None:
+    members_by_cluster = _cluster_members(active_accessions, cluster_by_accession)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    with meta_path.open("w", encoding="utf-8") as handle:
+        handle.write(
+            "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\t"
+            "composed_description\n"
+        )
+        for cluster_id in sorted(members_by_cluster):
+            similarities = summary_by_cluster[cluster_id]
+            similarity_columns = "\t".join(
+                "NA" if similarity is None else f"{similarity:7.5f}"
+                for similarity in similarities
+            )
+            handle.write(
+                f"{cluster_id}\t{similarity_columns}\t"
+                f"{len(members_by_cluster[cluster_id])}\t\n"
+            )
+
+
+def _refine_one_leiden_cluster(
+    *,
+    go_index: FastGoSimilarityIndex,
+    members: list[str],
+    accession_terms: dict[str, tuple[str, ...]],
+    min_cluster_similarity: float,
+    profile_pair_cache: ProfilePairCache | None,
+    lin_similarity_matrix: np.ndarray | None,
+) -> tuple[list[_RefinedCluster], int]:
+    if len(members) == 1:
+        return [_RefinedCluster((members[0],), None, None, None)], 0
+
+    try:
+        from scipy.cluster.hierarchy import fcluster, linkage
+    except ImportError as exc:
+        raise ValueError(
+            "Complete-linkage GO cluster refinement requires scipy. "
+            "Install with: pip install scipy"
+        ) from exc
+
+    pair_count = len(members) * (len(members) - 1) // 2
+    distances = np.empty(pair_count, dtype=np.float64)
+    offset = 0
+    for member_index, accession_a in enumerate(members[:-1]):
+        profile_a = accession_terms[accession_a]
+        for accession_b in members[member_index + 1 :]:
+            score = set_lin_amb_fast_for_valid_profiles(
+                go_index,
+                profile_a,
+                accession_terms[accession_b],
+                profile_pair_cache=profile_pair_cache,
+                lin_similarity_matrix=lin_similarity_matrix,
+            )
+            similarity = 0.0 if score is None else min(1.0, max(0.0, score))
+            distances[offset] = 1.0 - similarity
+            offset += 1
+
+    hierarchy = linkage(distances, method="complete")
+    labels = fcluster(
+        hierarchy,
+        t=1.0 - min_cluster_similarity,
+        criterion="distance",
+    )
+    member_indices_by_label: dict[int, list[int]] = {}
+    for member_index, label in enumerate(labels):
+        member_indices_by_label.setdefault(int(label), []).append(member_index)
+
+    refined_clusters: list[_RefinedCluster] = []
+    for member_indices in member_indices_by_label.values():
+        cluster_members = tuple(members[index] for index in member_indices)
+        sim_ave, sim_min, sim_max = _condensed_similarity_summary(
+            distances,
+            member_count=len(members),
+            member_indices=member_indices,
+        )
+        if sim_min is not None and sim_min + 1e-12 < min_cluster_similarity:
+            raise RuntimeError(
+                "Complete-linkage refinement violated minimum cluster "
+                f"similarity: {sim_min} < {min_cluster_similarity}"
+            )
+        refined_clusters.append(
+            _RefinedCluster(cluster_members, sim_ave, sim_min, sim_max)
+        )
+    return refined_clusters, pair_count
+
+
+def _condensed_similarity_summary(
+    distances: np.ndarray,
+    *,
+    member_count: int,
+    member_indices: list[int],
+) -> tuple[float | None, float | None, float | None]:
+    if len(member_indices) < 2:
+        return None, None, None
+    total = 0.0
+    pair_count = 0
+    sim_min = math.inf
+    sim_max = -math.inf
+    for position, member_a in enumerate(member_indices[:-1]):
+        for member_b in member_indices[position + 1 :]:
+            distance_index = _condensed_distance_index(
+                member_count,
+                member_a,
+                member_b,
+            )
+            similarity = 1.0 - float(distances[distance_index])
+            total += similarity
+            pair_count += 1
+            sim_min = min(sim_min, similarity)
+            sim_max = max(sim_max, similarity)
+    return total / pair_count, sim_min, sim_max
+
+
+def _condensed_distance_index(member_count: int, member_a: int, member_b: int) -> int:
+    if member_a == member_b:
+        raise ValueError("Condensed distance index requires distinct members")
+    if member_a > member_b:
+        member_a, member_b = member_b, member_a
+    return (
+        member_count * member_a
+        - member_a * (member_a + 1) // 2
+        + member_b
+        - member_a
+        - 1
+    )
 
 
 def _cluster_members(
@@ -892,19 +1301,21 @@ def _cluster_members(
     return members_by_cluster
 
 
-def _average_pairwise_cluster_similarity(
+def _pairwise_cluster_similarity_summary(
     go_index: FastGoSimilarityIndex,
     members: list[str],
     *,
     accession_terms: dict[str, tuple[str, ...]],
     profile_pair_cache: ProfilePairCache | None,
     lin_similarity_matrix: np.ndarray | None,
-) -> float | None:
+) -> tuple[float | None, float | None, float | None]:
     if len(members) < 2:
-        return None
+        return None, None, None
 
     total = 0.0
     pair_count = 0
+    sim_min = math.inf
+    sim_max = -math.inf
     for index, accession_a in enumerate(members[:-1]):
         profile_a = accession_terms[accession_a]
         for accession_b in members[index + 1 :]:
@@ -915,9 +1326,12 @@ def _average_pairwise_cluster_similarity(
                 profile_pair_cache=profile_pair_cache,
                 lin_similarity_matrix=lin_similarity_matrix,
             )
-            total += 0.0 if score is None else score
+            similarity = 0.0 if score is None else score
+            total += similarity
             pair_count += 1
-    return total / pair_count
+            sim_min = min(sim_min, similarity)
+            sim_max = max(sim_max, similarity)
+    return total / pair_count, sim_min, sim_max
 
 
 def _write_stats_json(
@@ -929,6 +1343,7 @@ def _write_stats_json(
     resolution: float,
     neighbors: int,
     min_informative_ic: float,
+    min_similarity: float,
     max_posting_fraction: float,
     max_posting_size: int,
     input_accessions: int,
@@ -956,6 +1371,7 @@ def _write_stats_json(
         "neighbors": neighbors,
         "seed": LEIDEN_SEED,
         "min_informative_ic": min_informative_ic,
+        "min_similarity": min_similarity,
         "max_posting_fraction": max_posting_fraction,
         "max_posting_size": max_posting_size,
         "input_accessions": input_accessions,
@@ -974,6 +1390,7 @@ def _write_stats_json(
         ),
         "edges": edges,
         "clusters": clusters,
+        "singletons": _cluster_singleton_count(cluster_by_accession),
         "cluster_size_min": min_size,
         "cluster_size_mean": mean_size,
         "cluster_size_median": median_size,
@@ -992,6 +1409,73 @@ def _write_stats_json(
     }
     stats_path.parent.mkdir(parents=True, exist_ok=True)
     stats_path.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_refinement_stats_json(
+    stats_path: Path,
+    *,
+    min_cluster_similarity: float,
+    clustered_accessions: int,
+    leiden_clusters: int,
+    refined_clusters: int,
+    leiden_singletons: int,
+    refined_singletons: int,
+    leiden_clusters_split: int,
+    refinement_pairs_scored: int,
+    leiden_cluster_by_accession: dict[str, str],
+    final_cluster_by_accession: dict[str, str],
+    accession_go_file: Path,
+    go_graph_file: Path,
+    leiden_cluster_file: Path,
+    output_file: Path,
+    meta_file: Path,
+) -> None:
+    pre_min, pre_mean, pre_median, pre_max = _cluster_size_summary(
+        leiden_cluster_by_accession
+    )
+    post_min, post_mean, post_median, post_max = _cluster_size_summary(
+        final_cluster_by_accession
+    )
+    stats = {
+        "algorithm": "go_set_similarity_leiden_complete_linkage",
+        "similarity": "lin_amb",
+        "min_cluster_similarity": min_cluster_similarity,
+        "clustered_accessions": clustered_accessions,
+        "leiden_clusters": leiden_clusters,
+        "refined_clusters": refined_clusters,
+        "clusters": refined_clusters,
+        "leiden_singletons": leiden_singletons,
+        "refined_singletons": refined_singletons,
+        "leiden_clusters_split": leiden_clusters_split,
+        "refinement_pairs_scored": refinement_pairs_scored,
+        "pre_refinement_cluster_size_min": pre_min,
+        "pre_refinement_cluster_size_mean": pre_mean,
+        "pre_refinement_cluster_size_median": pre_median,
+        "pre_refinement_cluster_size_max": pre_max,
+        "cluster_size_min": post_min,
+        "cluster_size_mean": post_mean,
+        "cluster_size_median": post_median,
+        "cluster_size_max": post_max,
+        "dependencies": {
+            "go_graph": str(go_graph_file),
+            "accession_go": str(accession_go_file),
+            "leiden_clusters": str(leiden_cluster_file),
+        },
+        "outputs": {
+            "clusters": str(output_file),
+            "stats": str(stats_path),
+            "meta": str(meta_file),
+        },
+    }
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    stats_path.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
+
+
+def _cluster_singleton_count(cluster_by_accession: dict[str, str]) -> int:
+    cluster_sizes: dict[str, int] = {}
+    for cluster_id in cluster_by_accession.values():
+        cluster_sizes[cluster_id] = cluster_sizes.get(cluster_id, 0) + 1
+    return sum(size == 1 for size in cluster_sizes.values())
 
 
 def _cluster_size_summary(
