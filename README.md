@@ -44,6 +44,15 @@ with complete linkage. Final outputs are `clusters.tsv` and
 `clusters_meta.tsv`. Use `--min-cluster-similarity` to set the required
 all-pairs similarity floor; the default is `0.25`.
 
+After final clustering, `build-library` also synthesizes cluster-level GO MF
+signatures from `clusters.tsv`, `accession_mf_go.tsv`, and `go_graph.pkl`.
+The `clusters_meta.tsv` output includes a `composed_go` column with up to 10
+semicolon-separated representative GO terms per cluster. Terms are selected by
+`support × IC`, but only GO IDs are written. Each accession contributes one
+equal vote per propagated GO term; no additional evidence-code weighting is
+applied because the retained Swiss-Prot annotations have already been filtered
+during library construction.
+
 ## Diagnostic Inspection
 
 `prosig inspect` is a diagnostic command group for checking intermediate

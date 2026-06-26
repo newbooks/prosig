@@ -123,6 +123,19 @@ clusters_stats.json
 and defaults to `0.25`. `--leiden-cluster-out` and `--cluster-out` control the
 intermediate and final membership paths respectively.
 
+After final refinement, `build-library` synthesizes cluster-level GO signatures
+into the final metadata file:
+
+```text
+clusters_meta.tsv
+```
+
+The metadata column is `composed_go`. It contains up to 10 semicolon-separated
+GO IDs per cluster. The signature step consumes final cluster membership,
+`accession_mf_go.tsv`, and `go_graph.pkl`; votes equally by accession;
+propagates direct MF terms to ancestors; scores candidates as `support × IC`;
+and writes only the selected GO IDs.
+
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when
 missing. The same config also controls the stats output path and clustering

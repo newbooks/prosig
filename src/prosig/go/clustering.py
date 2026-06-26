@@ -7,6 +7,7 @@ import logging
 import math
 import statistics
 import time
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -88,6 +89,13 @@ class _RefinedCluster:
     sim_ave: float | None
     sim_min: float | None
     sim_max: float | None
+
+
+@dataclass(frozen=True)
+class _GoCandidateScore:
+    go_id: str
+    support: float
+    score: float
 
 
 @dataclass(frozen=True)
@@ -410,6 +418,8 @@ def refine_go_clusters_complete_linkage(
         active_accessions=active_accessions,
         cluster_by_accession=final_cluster_by_accession,
         summary_by_cluster=final_summary_by_cluster,
+        go_index=go_index,
+        accession_terms=accession_terms,
     )
     refined_singletons = sum(
         len(cluster.members) == 1 for cluster in refined_clusters
@@ -1132,7 +1142,7 @@ def _write_cluster_meta_tsv(
     with meta_path.open("w", encoding="utf-8") as handle:
         handle.write(
             "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\t"
-            "composed_description\n"
+            "composed_go\n"
         )
         for cluster_id in sorted(members_by_cluster):
             members = members_by_cluster[cluster_id]
@@ -1148,10 +1158,14 @@ def _write_cluster_meta_tsv(
                 for similarity in (sim_ave, sim_min, sim_max)
             ]
             similarity_columns = "\t".join(similarity_texts)
+            composed_go = _format_composed_go(
+                _synthesize_cluster_go_terms(go_index, members, accession_terms)
+            )
             handle.write(
                 f"{cluster_id}\t"
                 f"{similarity_columns}\t"
-                f"{len(members)}\t\n"
+                f"{len(members)}\t"
+                f"{composed_go}\n"
             )
 
 
@@ -1163,13 +1177,15 @@ def _write_cluster_meta_from_summaries(
     summary_by_cluster: dict[
         str, tuple[float | None, float | None, float | None]
     ],
+    go_index: FastGoSimilarityIndex,
+    accession_terms: dict[str, tuple[str, ...]],
 ) -> None:
     members_by_cluster = _cluster_members(active_accessions, cluster_by_accession)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     with meta_path.open("w", encoding="utf-8") as handle:
         handle.write(
             "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\t"
-            "composed_description\n"
+            "composed_go\n"
         )
         for cluster_id in sorted(members_by_cluster):
             similarities = summary_by_cluster[cluster_id]
@@ -1177,10 +1193,185 @@ def _write_cluster_meta_from_summaries(
                 "NA" if similarity is None else f"{similarity:7.5f}"
                 for similarity in similarities
             )
+            members = members_by_cluster[cluster_id]
+            composed_go = _format_composed_go(
+                _synthesize_cluster_go_terms(go_index, members, accession_terms)
+            )
             handle.write(
                 f"{cluster_id}\t{similarity_columns}\t"
-                f"{len(members_by_cluster[cluster_id])}\t\n"
+                f"{len(members)}\t"
+                f"{composed_go}\n"
             )
+
+
+def _synthesize_cluster_go_terms(
+    go_index: FastGoSimilarityIndex,
+    members: list[str],
+    accession_terms: dict[str, tuple[str, ...]],
+    *,
+    max_terms: int = 10,
+    min_support: float = 0.1,
+    relative_drop_cutoff: float = 0.5,
+    parent_coverage_cutoff: float = 0.8,
+) -> list[_GoCandidateScore]:
+    """Return representative GO terms for a cluster using equal accession votes."""
+    if max_terms < 1:
+        raise ValueError("max_terms must be at least 1")
+    if not 0.0 <= min_support <= 1.0:
+        raise ValueError("minimum support must be between 0 and 1")
+    if relative_drop_cutoff < 0.0:
+        raise ValueError("relative drop cutoff must be non-negative")
+    if not 0.0 <= parent_coverage_cutoff <= 1.0:
+        raise ValueError("parent coverage cutoff must be between 0 and 1")
+
+    annotated_members = 0
+    term_votes: Counter[str] = Counter()
+    for member in members:
+        terms = accession_terms.get(member, ())
+        if not terms:
+            continue
+        annotated_members += 1
+        supported_terms = _propagated_go_terms_for_member(go_index, terms)
+        term_votes.update(supported_terms)
+
+    if annotated_members == 0:
+        return []
+
+    candidates: list[_GoCandidateScore] = []
+    for go_id, votes in term_votes.items():
+        support = votes / annotated_members
+        if support < min_support:
+            continue
+        ic = go_index.ic_by_term.get(go_id)
+        if ic is None or ic <= 0.0:
+            continue
+        candidates.append(_GoCandidateScore(go_id, support, support * ic))
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (-item.score, -item.support, item.go_id),
+    )
+    selected = _suppress_parent_go_terms(
+        ranked,
+        go_index,
+        parent_coverage_cutoff=parent_coverage_cutoff,
+    )
+    selected = _apply_relative_go_score_drop(
+        selected,
+        relative_drop_cutoff=relative_drop_cutoff,
+    )
+    return selected[:max_terms]
+
+
+def _propagated_go_terms_for_member(
+    go_index: FastGoSimilarityIndex,
+    terms: tuple[str, ...],
+) -> set[str]:
+    propagated_terms: set[str] = set()
+    for term in terms:
+        for candidate_term in go_index.ancestors_by_term.get(term, ()):
+            ic = go_index.ic_by_term.get(candidate_term)
+            if ic is None or ic <= 0.0:
+                continue
+            propagated_terms.add(candidate_term)
+    return propagated_terms
+
+
+def _suppress_parent_go_terms(
+    ranked_terms: list[_GoCandidateScore],
+    go_index: FastGoSimilarityIndex,
+    *,
+    parent_coverage_cutoff: float,
+) -> list[_GoCandidateScore]:
+    selected: list[_GoCandidateScore] = []
+    for candidate in ranked_terms:
+        if _go_candidate_is_suppressed(
+            candidate,
+            selected,
+            go_index,
+            parent_coverage_cutoff=parent_coverage_cutoff,
+        ):
+            continue
+        selected = [
+            current
+            for current in selected
+            if not _go_candidate_suppresses_selected(
+                candidate,
+                current,
+                go_index,
+                parent_coverage_cutoff=parent_coverage_cutoff,
+            )
+        ]
+        selected.append(candidate)
+    return selected
+
+
+def _go_candidate_is_suppressed(
+    candidate: _GoCandidateScore,
+    selected: list[_GoCandidateScore],
+    go_index: FastGoSimilarityIndex,
+    *,
+    parent_coverage_cutoff: float,
+) -> bool:
+    candidate_ancestors = go_index.ancestors_by_term.get(candidate.go_id, ())
+    for current in selected:
+        current_ancestors = go_index.ancestors_by_term.get(current.go_id, ())
+        if current.go_id in candidate_ancestors:
+            coverage = (
+                candidate.support / current.support
+                if current.support > 0
+                else 0.0
+            )
+            if coverage >= parent_coverage_cutoff:
+                continue
+            return True
+        if candidate.go_id in current_ancestors:
+            coverage = (
+                current.support / candidate.support
+                if candidate.support > 0
+                else 0.0
+            )
+            if coverage >= parent_coverage_cutoff:
+                return True
+    return False
+
+
+def _go_candidate_suppresses_selected(
+    candidate: _GoCandidateScore,
+    current: _GoCandidateScore,
+    go_index: FastGoSimilarityIndex,
+    *,
+    parent_coverage_cutoff: float,
+) -> bool:
+    candidate_ancestors = go_index.ancestors_by_term.get(candidate.go_id, ())
+    if current.go_id not in candidate_ancestors:
+        return False
+    coverage = candidate.support / current.support if current.support > 0 else 0.0
+    return coverage >= parent_coverage_cutoff
+
+
+def _apply_relative_go_score_drop(
+    ranked_terms: list[_GoCandidateScore],
+    *,
+    relative_drop_cutoff: float,
+) -> list[_GoCandidateScore]:
+    if len(ranked_terms) < 2:
+        return ranked_terms
+    selected = [ranked_terms[0]]
+    previous_score = ranked_terms[0].score
+    for candidate in ranked_terms[1:]:
+        if (
+            previous_score > 0.0
+            and candidate.score / previous_score < relative_drop_cutoff
+        ):
+            break
+        selected.append(candidate)
+        previous_score = candidate.score
+    return selected
+
+
+def _format_composed_go(terms: list[_GoCandidateScore]) -> str:
+    return ";".join(term.go_id for term in terms)
 
 
 def _refine_one_leiden_cluster(

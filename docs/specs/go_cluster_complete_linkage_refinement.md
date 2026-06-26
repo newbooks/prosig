@@ -278,7 +278,7 @@ The independently reusable first-stage membership remains in
 `clusters_meta.tsv` uses:
 
 ```text
-cluster_id	sim_ave	sim_min	sim_max	size	composed_description
+cluster_id	sim_ave	sim_min	sim_max	size	composed_go
 ```
 
 For every non-singleton row:
