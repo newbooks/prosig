@@ -95,13 +95,14 @@ def test_cluster_accessions_by_go_writes_clusters_and_stats(tmp_path: Path) -> N
     assert stats["profile_cache"]["budget_mb"] == 1
     meta_lines = meta_out.read_text(encoding="utf-8").splitlines()
     assert meta_lines[0] == (
-        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_description"
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go"
     )
     assert any(line.startswith("cluster_0001\t") for line in meta_lines[1:])
     meta_rows = [line.split("\t") for line in meta_lines[1:]]
     assert sum(int(row[4]) for row in meta_rows) == result.clustered_accessions
     for row in meta_rows:
         sim_ave, sim_min, sim_max = row[1:4]
+        assert row[5] == "GO:0000002"
         if int(row[4]) == 1:
             assert (sim_ave, sim_min, sim_max) == ("NA", "NA", "NA")
         else:
@@ -299,6 +300,7 @@ def test_complete_linkage_refines_leiden_clusters_and_keeps_singletons(
         row[2] == "NA" or float(row[2]) >= 0.5
         for row in meta_rows
     )
+    assert all(row[5].startswith("GO:") for row in meta_rows)
     stats = json.loads(stats_out.read_text(encoding="utf-8"))
     assert stats["algorithm"] == "go_set_similarity_leiden_complete_linkage"
     assert stats["min_cluster_similarity"] == 0.5
@@ -322,6 +324,73 @@ def test_complete_linkage_validates_minimum_similarity(tmp_path: Path) -> None:
             go_artifact=_small_artifact(),
             min_cluster_similarity=0.0,
         )
+
+
+def test_complete_linkage_metadata_limits_composed_go_to_ten_terms(
+    tmp_path: Path,
+) -> None:
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    leiden_clusters = tmp_path / "leiden_clusters.tsv"
+    meta_out = tmp_path / "clusters_meta.tsv"
+    go_terms = tuple(f"GO:{term_index:07d}" for term_index in range(1, 12))
+    accession_go.write_text(
+        f"P1\t{';'.join(go_terms)}\n",
+        encoding="utf-8",
+    )
+    leiden_clusters.write_text(
+        "member_id\tcluster_id\nP1\tcluster_0001\n",
+        encoding="utf-8",
+    )
+
+    refine_go_clusters_complete_linkage(
+        accession_go,
+        leiden_clusters,
+        go_artifact=_many_term_artifact(go_terms),
+        output_file=tmp_path / "clusters.tsv",
+        meta_file=meta_out,
+        stats_file=None,
+    )
+
+    row = meta_out.read_text(encoding="utf-8").splitlines()[1].split("\t")
+    composed_go = row[5].split(";")
+    assert len(composed_go) == 10
+    assert composed_go == list(reversed(go_terms[1:]))
+
+
+def test_composed_go_suppresses_low_coverage_child_when_parent_ranks_later(
+    tmp_path: Path,
+) -> None:
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    leiden_clusters = tmp_path / "leiden_clusters.tsv"
+    meta_out = tmp_path / "clusters_meta.tsv"
+    accession_go.write_text(
+        "P1\tGO:0000002\n"
+        "P2\tGO:0000001\n"
+        "P3\tGO:0000001\n"
+        "P4\tGO:0000001\n",
+        encoding="utf-8",
+    )
+    leiden_clusters.write_text(
+        "member_id\tcluster_id\n"
+        "P1\tcluster_0001\n"
+        "P2\tcluster_0001\n"
+        "P3\tcluster_0001\n"
+        "P4\tcluster_0001\n",
+        encoding="utf-8",
+    )
+
+    refine_go_clusters_complete_linkage(
+        accession_go,
+        leiden_clusters,
+        go_artifact=_low_coverage_child_artifact(),
+        output_file=tmp_path / "clusters.tsv",
+        meta_file=meta_out,
+        stats_file=None,
+        min_cluster_similarity=0.1,
+    )
+
+    row = meta_out.read_text(encoding="utf-8").splitlines()[1].split("\t")
+    assert row[5] == "GO:0000001"
 
 
 def _small_artifact() -> dict:
@@ -368,4 +437,73 @@ def _small_artifact() -> dict:
                 "ic": 3.0,
             },
         },
+    }
+
+
+def _low_coverage_child_artifact() -> dict:
+    return {
+        "meta": {
+            "schema_version": "1.0",
+            "namespace": "molecular_function",
+        },
+        "terms": {
+            "GO:0003674": {
+                "name": "molecular_function",
+                "parents": [],
+                "children": ["GO:0000001"],
+                "ancestors": set(),
+                "depth": 0,
+                "freq": 1.0,
+                "ic": 0.0,
+            },
+            "GO:0000001": {
+                "name": "parent activity",
+                "parents": ["GO:0003674"],
+                "children": ["GO:0000002"],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": math.exp(-1.0),
+                "ic": 1.0,
+            },
+            "GO:0000002": {
+                "name": "specific child activity",
+                "parents": ["GO:0000001"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0000001"},
+                "depth": 2,
+                "freq": math.exp(-5.0),
+                "ic": 5.0,
+            },
+        },
+    }
+
+
+def _many_term_artifact(go_terms: tuple[str, ...]) -> dict:
+    terms = {
+        "GO:0003674": {
+            "name": "molecular_function",
+            "parents": [],
+            "children": list(go_terms),
+            "ancestors": set(),
+            "depth": 0,
+            "freq": 1.0,
+            "ic": 0.0,
+        }
+    }
+    for term_index, go_id in enumerate(go_terms, start=1):
+        terms[go_id] = {
+            "name": f"activity {term_index}",
+            "parents": ["GO:0003674"],
+            "children": [],
+            "ancestors": {"GO:0003674"},
+            "depth": 1,
+            "freq": math.exp(-float(term_index)),
+            "ic": float(term_index),
+        }
+    return {
+        "meta": {
+            "schema_version": "1.0",
+            "namespace": "molecular_function",
+        },
+        "terms": terms,
     }

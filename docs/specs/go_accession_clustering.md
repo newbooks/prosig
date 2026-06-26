@@ -157,9 +157,9 @@ parameter provenance.
 Cluster metadata output:
 
 ```text
-cluster_id	sim_ave	sim_min	sim_max	size	composed_description
-cluster_0001	0.84750	0.72000	1.00000	8
-cluster_0002	NA	NA	NA	1
+cluster_id	sim_ave	sim_min	sim_max	size	composed_go
+cluster_0001	0.84750	0.72000	1.00000	8	GO:0004672;GO:0005524
+cluster_0002	NA	NA	NA	1	GO:0005524
 ```
 
 Rules:
@@ -173,8 +173,8 @@ Rules:
 - similarity values are written using `%7.5f` formatting
 - singleton clusters use `NA` for all similarity columns
 - unavailable accession-pair similarities contribute `0.0`
-- `composed_description` is reserved for the future GO description composer and
-  is currently written as an empty value
+- `composed_go`: semicolon-separated representative GO terms synthesized from
+  equal accession votes within the cluster
 
 ## Build-Library Integration
 

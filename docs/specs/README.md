@@ -15,6 +15,8 @@ Current specs:
 - `go_cluster_complete_linkage_refinement.md`: complete-linkage second-stage
   refinement that enforces a final all-pairs similarity floor within each
   Leiden community.
+- `cluster_go_signatures.md`: cluster-level synthetic GO MF signatures produced
+  from final clusters, accession MF GO annotations, and GO IC values.
 - `go_mf_natural_language_composer.md`: rule-based natural-language summaries
   from Molecular Function GO term sets.
 - `inspect_cli.md`: diagnostic `prosig inspect` command group.
