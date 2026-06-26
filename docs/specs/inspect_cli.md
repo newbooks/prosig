@@ -135,6 +135,24 @@ B query: A0A024B7W1 (GO:0003724;GO:0003725;GO:0003968)
 GO:0005524 --0.2211--> GO:0004672
 ```
 
+### `function`
+
+```text
+prosig inspect function P00533 --accession-go accession_mf_go.tsv
+prosig inspect function "GO:0004672;GO:0005524"
+prosig inspect function cluster_0008 --cluster-meta clusters_meta.tsv
+```
+
+This command composes a concise Molecular Function description from one of
+three query forms:
+
+- accession: resolved through `accession_mf_go.tsv`
+- direct GO set: semicolon- or comma-separated GO IDs
+- cluster ID: `cluster_` followed by digits, resolved through the
+  `composed_go` column in `clusters_meta.tsv`
+
+Cluster metadata defaults to `clusters_meta.tsv` in the working directory.
+
 ## Planned Commands
 
 Future diagnostic commands should be added under this command group:

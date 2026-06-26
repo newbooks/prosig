@@ -68,6 +68,7 @@ prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl --verbose
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-style ascii
 prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
 prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
+prosig inspect function cluster_0008 --go-graph go_graph.pkl --cluster-meta clusters_meta.tsv
 ```
 
 `build-library` also derives `accession.fasta` and
