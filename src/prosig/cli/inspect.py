@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import json
+import re
 from collections import deque
 from dataclasses import asdict
 from pathlib import Path
@@ -18,6 +20,8 @@ from prosig.go.similarity import (
     load_accession_mf_go_terms,
     resolve_go_set_query,
 )
+
+CLUSTER_ID_PATTERN = re.compile(r"^cluster_\d+$")
 
 inspect_app = typer.Typer(
     help="Inspect ProSig data artifacts and diagnostic calculations.",
@@ -215,8 +219,8 @@ def function(
         str,
         typer.Argument(
             help=(
-                "Accession or MF GO set. Quote GO set expressions in the shell, "
-                "e.g. 'GO:0004672;GO:0005524'."
+                "Accession, cluster ID, or MF GO set. Quote GO set expressions "
+                "in the shell, e.g. 'GO:0004672;GO:0005524'."
             )
         ),
     ],
@@ -231,6 +235,13 @@ def function(
             help="Path to accession_mf_go.tsv from build-library.",
         ),
     ] = Path("accession_mf_go.tsv"),
+    cluster_meta: Annotated[
+        Path,
+        typer.Option(
+            "--cluster-meta",
+            help="Path to clusters_meta.tsv from build-library.",
+        ),
+    ] = Path("clusters_meta.tsv"),
     max_modifiers: Annotated[
         int,
         typer.Option(
@@ -252,9 +263,13 @@ def function(
         typer.Option("--json", help="Write function description as JSON."),
     ] = False,
 ) -> None:
-    """Describe function from an accession or MF GO term set."""
+    """Describe function from an accession, cluster ID, or MF GO term set."""
     similarity = _load_go_similarity(go_graph)
-    terms = _resolve_go_set_query(query, accession_go)
+    terms = _resolve_function_query(
+        query,
+        accession_go=accession_go,
+        cluster_meta=cluster_meta,
+    )
     result = describe_go_function(
         query,
         terms,
@@ -328,6 +343,57 @@ def _resolve_go_set_query(query: str, accession_go: Path) -> tuple[str, ...]:
         return resolve_go_set_query(query, accession_terms)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _resolve_function_query(
+    query: str,
+    *,
+    accession_go: Path,
+    cluster_meta: Path,
+) -> tuple[str, ...]:
+    if _is_cluster_id_input(query):
+        try:
+            return _load_cluster_composed_go(cluster_meta, query)
+        except FileNotFoundError as exc:
+            raise typer.BadParameter(
+                f"cluster metadata file not found: {cluster_meta}"
+            ) from exc
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    return _resolve_go_set_query(query, accession_go)
+
+
+def _is_cluster_id_input(query: str) -> bool:
+    return CLUSTER_ID_PATTERN.fullmatch(query.strip()) is not None
+
+
+def _load_cluster_composed_go(cluster_meta: Path, cluster_id: str) -> tuple[str, ...]:
+    with cluster_meta.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        fieldnames = set(reader.fieldnames or ())
+        required = {"cluster_id", "composed_go"}
+        if not required.issubset(fieldnames):
+            missing = ", ".join(sorted(required - fieldnames))
+            raise ValueError(
+                f"{cluster_meta} missing required column(s): {missing}"
+            )
+        for row in reader:
+            if str(row.get("cluster_id", "")).strip() != cluster_id:
+                continue
+            return _parse_cluster_composed_go(row.get("composed_go", ""))
+    raise ValueError(f"cluster ID not found in {cluster_meta}: {cluster_id}")
+
+
+def _parse_cluster_composed_go(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            token.strip()
+            for token in value.replace(",", ";").split(";")
+            if token.strip()
+        )
+    )
 
 
 def _format_score(score: float | None) -> str:

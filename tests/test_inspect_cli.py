@@ -308,6 +308,14 @@ def test_inspect_help_lists_diagnostic_commands() -> None:
     assert "go-similarity" not in result.stdout
 
 
+def test_inspect_function_help_lists_cluster_id_argument_type() -> None:
+    result = CliRunner().invoke(app, ["inspect", "function", "-h"])
+
+    assert result.exit_code == 0
+    assert "Accession, cluster ID, or MF GO set" in result.stdout
+    assert "--cluster-meta" in result.stdout
+
+
 def test_inspect_go_term_outputs_term_details(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
@@ -1012,6 +1020,97 @@ def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
         "Function: P00001 is annotated as an ATP- and magnesium-binding "
         "protein kinase."
     ) in result.stdout
+
+
+def test_inspect_function_resolves_cluster_id_from_clusters_meta(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\n"
+        "cluster_0007\t0.90000\t0.80000\t1.00000\t4\tGO:0004672;GO:0005524\n"
+        "cluster_0008\tNA\tNA\tNA\t1\tGO:0044183\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "cluster_0007",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        "cluster_0007 is annotated as an ATP-binding protein kinase.\n"
+    )
+
+
+def test_inspect_function_verbose_resolves_cluster_id_from_clusters_meta(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\n"
+        "cluster_0008\tNA\tNA\tNA\t1\tGO:0044183\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "cluster_0008",
+            "--go-graph",
+            str(go_graph),
+            "--verbose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Query: cluster_0008" in result.stdout
+    assert "Resolved terms: GO:0044183" in result.stdout
+    assert "- GO:0044183 protein folding chaperone (role=chaperone)" in result.stdout
+    assert (
+        "Function: cluster_0008 is annotated as a protein folding chaperone."
+        in result.stdout
+    )
+
+
+def test_inspect_function_rejects_missing_cluster_id(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\n"
+        "cluster_0007\t0.90000\t0.80000\t1.00000\t4\tGO:0004672\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "function",
+            "cluster_0008",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "cluster ID not found" in result.stderr
 
 
 def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:
