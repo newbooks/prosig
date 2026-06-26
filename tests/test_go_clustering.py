@@ -357,6 +357,42 @@ def test_complete_linkage_metadata_limits_composed_go_to_ten_terms(
     assert composed_go == list(reversed(go_terms[1:]))
 
 
+def test_composed_go_suppresses_low_coverage_child_when_parent_ranks_later(
+    tmp_path: Path,
+) -> None:
+    accession_go = tmp_path / "accession_mf_go.tsv"
+    leiden_clusters = tmp_path / "leiden_clusters.tsv"
+    meta_out = tmp_path / "clusters_meta.tsv"
+    accession_go.write_text(
+        "P1\tGO:0000002\n"
+        "P2\tGO:0000001\n"
+        "P3\tGO:0000001\n"
+        "P4\tGO:0000001\n",
+        encoding="utf-8",
+    )
+    leiden_clusters.write_text(
+        "member_id\tcluster_id\n"
+        "P1\tcluster_0001\n"
+        "P2\tcluster_0001\n"
+        "P3\tcluster_0001\n"
+        "P4\tcluster_0001\n",
+        encoding="utf-8",
+    )
+
+    refine_go_clusters_complete_linkage(
+        accession_go,
+        leiden_clusters,
+        go_artifact=_low_coverage_child_artifact(),
+        output_file=tmp_path / "clusters.tsv",
+        meta_file=meta_out,
+        stats_file=None,
+        min_cluster_similarity=0.1,
+    )
+
+    row = meta_out.read_text(encoding="utf-8").splitlines()[1].split("\t")
+    assert row[5] == "GO:0000001"
+
+
 def _small_artifact() -> dict:
     return {
         "meta": {
@@ -399,6 +435,44 @@ def _small_artifact() -> dict:
                 "depth": 2,
                 "freq": math.exp(-3.0),
                 "ic": 3.0,
+            },
+        },
+    }
+
+
+def _low_coverage_child_artifact() -> dict:
+    return {
+        "meta": {
+            "schema_version": "1.0",
+            "namespace": "molecular_function",
+        },
+        "terms": {
+            "GO:0003674": {
+                "name": "molecular_function",
+                "parents": [],
+                "children": ["GO:0000001"],
+                "ancestors": set(),
+                "depth": 0,
+                "freq": 1.0,
+                "ic": 0.0,
+            },
+            "GO:0000001": {
+                "name": "parent activity",
+                "parents": ["GO:0003674"],
+                "children": ["GO:0000002"],
+                "ancestors": {"GO:0003674"},
+                "depth": 1,
+                "freq": math.exp(-1.0),
+                "ic": 1.0,
+            },
+            "GO:0000002": {
+                "name": "specific child activity",
+                "parents": ["GO:0000001"],
+                "children": [],
+                "ancestors": {"GO:0003674", "GO:0000001"},
+                "depth": 2,
+                "freq": math.exp(-5.0),
+                "ic": 5.0,
             },
         },
     }

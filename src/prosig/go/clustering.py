@@ -1344,10 +1344,16 @@ def _go_candidate_suppresses_selected(
     parent_coverage_cutoff: float,
 ) -> bool:
     candidate_ancestors = go_index.ancestors_by_term.get(candidate.go_id, ())
-    if current.go_id not in candidate_ancestors:
-        return False
-    coverage = candidate.support / current.support if current.support > 0 else 0.0
-    return coverage >= parent_coverage_cutoff
+    if current.go_id in candidate_ancestors:
+        coverage = candidate.support / current.support if current.support > 0 else 0.0
+        return coverage >= parent_coverage_cutoff
+
+    current_ancestors = go_index.ancestors_by_term.get(current.go_id, ())
+    if candidate.go_id in current_ancestors:
+        coverage = current.support / candidate.support if candidate.support > 0 else 0.0
+        return coverage < parent_coverage_cutoff
+
+    return False
 
 
 def _apply_relative_go_score_drop(
