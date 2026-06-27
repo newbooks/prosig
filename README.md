@@ -39,8 +39,8 @@ Use `--force` or `-f` to rebuild them anyway.
 
 GO accession clustering builds a sparse GO-set similarity k-nearest-neighbor
 graph, writes freshness-managed Leiden artifacts (`leiden_clusters.tsv` and
-`leiden_clusters_meta.tsv`), then unconditionally refines those communities
-with complete linkage. Final outputs are `clusters.tsv` and
+`leiden_clusters_meta.tsv`), then freshness-manages complete-linkage refinement
+of those communities. Final outputs are `clusters.tsv` and
 `clusters_meta.tsv`. Use `--min-cluster-similarity` to set the required
 all-pairs similarity floor; the default is `0.25`.
 
@@ -52,6 +52,15 @@ semicolon-separated representative GO terms per cluster. Terms are selected by
 equal vote per propagated GO term; no additional evidence-code weighting is
 applied because the retained Swiss-Prot annotations have already been filtered
 during library construction.
+
+`build-library` scans `prosig_motifs.tsv` against `accession.fasta` for final
+cluster members and writes the sparse motif hit table `motif_features.tsv`.
+The scan uses 8 worker processes by default; override with
+`--motif-scan-processes`. It then builds a pickled motif-cluster prediction
+score board. The score board ignores clusters with fewer than 10 members,
+ignores motif-cluster pairs with support below 5, and stores only positive
+motif-cluster weights. Metadata is written alongside the pickle with counts for
+ignored combinations and stored weights.
 
 ## Diagnostic Inspection
 

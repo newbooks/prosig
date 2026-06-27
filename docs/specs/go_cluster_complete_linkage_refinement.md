@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented as the unconditional second clustering stage in
+Implemented as the freshness-managed second clustering stage in
 `prosig build-library`.
 
 ## Problem
@@ -125,10 +125,21 @@ Validation:
 The threshold is inclusive. A pair with similarity exactly equal to
 `min_cluster_similarity` may remain in the same cluster.
 
-Complete-linkage refinement runs unconditionally on every `build-library`
-invocation. Changing this option therefore does not rebuild current Leiden
-artifacts, but it always rewrites `clusters.tsv`, `clusters_meta.tsv`, and
-`clusters_stats.json`.
+Complete-linkage refinement is freshness-managed by `build-library`. Changing
+this option does not rebuild current Leiden artifacts, but it does invalidate
+the refinement outputs because `clusters_stats.json` records
+`min_cluster_similarity`.
+
+Refinement writes `clusters.tsv`, `clusters_meta.tsv`, and `clusters_stats.json`
+when any output is missing, when any dependency is newer, when `--force` is
+used, or when existing stats were built with a different
+`min_cluster_similarity`.
+
+Refinement dependencies are:
+
+- `go_graph.pkl`
+- `accession_mf_go.tsv`
+- `leiden_clusters.tsv`
 
 ## Revised Algorithm
 

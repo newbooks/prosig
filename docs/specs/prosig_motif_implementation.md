@@ -211,17 +211,28 @@ ProSig:  [DN]{-}N!P[ST]!P
 
 ## Motif Matching
 
-Use sparse, deterministic feature extraction.
+Use sparse, deterministic feature extraction. The production function-prediction
+path currently uses binary motif detection, so scanning stops after the first
+positive hit for an accession-motif pair.
 
 For each sequence and motif:
 
-1. If the sequence is empty, return `count = 0`, `first_position = 0`,
-   `last_position = 0`, `match_fraction = "NA"`.
+1. If the sequence is empty, treat the motif as absent.
 2. Test the motif at every zero-based start index from `0` through
-   `len(sequence) - 1`.
-3. Record one match for each start index that matches.
-4. For variable-length motifs, record the shortest valid span for that start.
-5. Allow overlapping matches.
+   `len(sequence) - 1`. If the motif ends with a literal C-terminal anchor
+   `>`, restrict the scan to the possible suffix starts implied by the motif
+   minimum and maximum consumed residue width and scan those starts from the
+   C-terminal side.
+3. Stop at the first start index that matches.
+4. For variable-length motifs, the first positive hit is enough; span features
+   are not emitted in the binary feature output.
+
+Build-library motif feature extraction is accession-chunk and
+process-parallel. Each worker loads one accession chunk, scans all motifs
+against each sequence, and writes a temporary sparse shard. The parent process
+logs progress as accession chunks complete, then concatenates shards in chunk
+order so the final `motif_features.tsv` remains deterministic. Rows are
+accession-major, with motifs preserving library order within each accession.
 
 Match coordinates:
 
@@ -233,7 +244,7 @@ Match coordinates:
   `end_n`; do not expose zero-based exclusive coordinates in the ProSig data
   model.
 
-Feature definitions:
+Legacy diagnostic feature definitions:
 
 ```text
 count = number of matches
@@ -243,9 +254,10 @@ last_position = sequence_length - last_start_n + 1, or 0 if no matches
 match_fraction = count / sequence_length, or "NA" for empty sequences
 ```
 
-Output rows:
+Production binary output rows:
 
-- Write only sequence-motif pairs where `count > 0`.
+- Write only sequence-motif pairs where the motif is present.
+- Treat row presence as binary motif presence.
 - Omit zero-hit sequence-motif pairs.
 - Omit accessions with no motif hits.
 - Order rows by cluster/member input order, then motif library order.
@@ -253,7 +265,7 @@ Output rows:
 Output header:
 
 ```text
-accession	motif_id	count	first_position	last_position	match_fraction
+accession	motif_id
 ```
 
 ## Command Behavior To Port

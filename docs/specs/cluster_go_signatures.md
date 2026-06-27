@@ -102,9 +102,8 @@ The synthesis step depends on:
 - `go_graph.pkl`
 
 The current implementation writes signatures as part of metadata generation.
-Complete-linkage refinement always rewrites `clusters.tsv`, `clusters_meta.tsv`,
-and `clusters_stats.json`; therefore `composed_go` is refreshed with the final
-cluster metadata.
+Complete-linkage refinement refreshes `composed_go` whenever final cluster
+metadata is rebuilt.
 
 ## Algorithm
 

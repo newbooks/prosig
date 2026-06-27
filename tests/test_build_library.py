@@ -10,6 +10,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from prosig.cli.app import app
+from prosig.cli.build_library import _refresh_motif_scoreboard
 from prosig.go.build import (
     assign_semantic_roles,
     build_go_pkl,
@@ -17,6 +18,7 @@ from prosig.go.build import (
     parse_swissprot_entry,
     write_accession_mf_go_tsv,
 )
+from prosig.motifs.scanning import motif_features_complete
 
 
 def test_parse_swissprot_entry_keeps_primary_accession_and_high_quality_mf() -> None:
@@ -236,6 +238,157 @@ def test_build_library_command_writes_go_graph_pkl(tmp_path: Path, monkeypatch) 
     )
 
 
+def test_build_library_writes_motif_scoreboard_when_hits_exist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("go-basic.obo").write_text(_small_obo(), encoding="utf-8")
+    _write_gzip(Path("uniprot_sprot.dat.gz"), _small_swissprot())
+    Path("prosite.dat").write_text(_small_prosite(), encoding="utf-8")
+    Path("motif_features.tsv").write_text(
+        "accession\tmotif_id\n"
+        "P00002\tmotif_a\n"
+        "P00005\tmotif_a\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "build-library",
+            "--motif-scoreboard-min-cluster-size",
+            "1",
+            "--motif-scoreboard-min-support",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert Path("motif_cluster_scoreboard.pkl").exists()
+    assert Path("motif_cluster_scoreboard_meta.json").exists()
+    with Path("motif_cluster_scoreboard.pkl").open("rb") as handle:
+        artifact = pickle.load(handle)
+    assert artifact["kind"] == "motif_cluster_scoreboard"
+    meta = json.loads(
+        Path("motif_cluster_scoreboard_meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["stats"]["min_cluster_size"] == 1
+    assert meta["stats"]["min_support"] == 1
+
+
+def test_motif_feature_refresh_rebuilds_partial_current_file(tmp_path: Path) -> None:
+    clusters = tmp_path / "clusters.tsv"
+    motifs = tmp_path / "prosig_motifs.tsv"
+    fasta = tmp_path / "accession.fasta"
+    index = tmp_path / "accession.fasta.idx"
+    motif_hits = tmp_path / "motif_features.tsv"
+    scoreboard = tmp_path / "motif_cluster_scoreboard.pkl"
+    scoreboard_meta = tmp_path / "motif_cluster_scoreboard_meta.json"
+    clusters.write_text(
+        "member_id\tcluster_id\nP1\tcluster_0001\n",
+        encoding="utf-8",
+    )
+    motifs.write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "N_GLY\tN-glycosylation\tN!P[ST]!P\tprosig\n",
+        encoding="utf-8",
+    )
+    _write_test_indexed_fasta(fasta, index, {"P1": "AAANATSAA"})
+    motif_hits.write_text(
+        "accession\tmotif_id\nP1\tN_GLY\n",
+        encoding="utf-8",
+    )
+    future_mtime = max(
+        clusters.stat().st_mtime,
+        motifs.stat().st_mtime,
+        fasta.stat().st_mtime,
+        index.stat().st_mtime,
+    ) + 100
+    os.utime(motif_hits, (future_mtime, future_mtime))
+
+    _refresh_motif_scoreboard(
+        cluster_out=clusters,
+        motif_out=motifs,
+        motif_hits=motif_hits,
+        fasta_file=fasta,
+        fasta_index_file=index,
+        motif_scoreboard_out=scoreboard,
+        motif_scoreboard_meta_out=scoreboard_meta,
+        min_cluster_size=1,
+        min_support=1,
+        force=False,
+        logger=logging.getLogger("test"),
+    )
+
+    assert motif_features_complete(motif_hits)
+    assert scoreboard.exists()
+    assert scoreboard_meta.exists()
+
+
+def test_refresh_motif_scoreboard_always_rebuilds_scoreboard_outputs(
+    tmp_path: Path,
+) -> None:
+    clusters = tmp_path / "clusters.tsv"
+    motifs = tmp_path / "prosig_motifs.tsv"
+    fasta = tmp_path / "accession.fasta"
+    index = tmp_path / "accession.fasta.idx"
+    motif_hits = tmp_path / "motif_features.tsv"
+    scoreboard = tmp_path / "motif_cluster_scoreboard.pkl"
+    scoreboard_meta = tmp_path / "motif_cluster_scoreboard_meta.json"
+    clusters.write_text(
+        "member_id\tcluster_id\n"
+        + "".join(f"A{i}\tcluster_0001\n" for i in range(1, 7))
+        + "".join(f"B{i}\tcluster_0002\n" for i in range(1, 7)),
+        encoding="utf-8",
+    )
+    motifs.write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "AA\tAA motif\tAA\tprosig\n",
+        encoding="utf-8",
+    )
+    _write_test_indexed_fasta(fasta, index, {"A1": "AA"})
+    motif_hits.write_text(
+        "accession\tmotif_id\n"
+        + "".join(f"A{i}\tmotif_a\n" for i in range(1, 6))
+        + "# completed\ttrue\n",
+        encoding="utf-8",
+    )
+
+    _refresh_motif_scoreboard(
+        cluster_out=clusters,
+        motif_out=motifs,
+        motif_hits=motif_hits,
+        fasta_file=fasta,
+        fasta_index_file=index,
+        motif_scoreboard_out=scoreboard,
+        motif_scoreboard_meta_out=scoreboard_meta,
+        min_cluster_size=1,
+        min_support=5,
+        force=False,
+        logger=logging.getLogger("test"),
+    )
+    first_meta = json.loads(scoreboard_meta.read_text(encoding="utf-8"))
+    assert first_meta["stats"]["stored_weights"] == 1
+
+    _refresh_motif_scoreboard(
+        cluster_out=clusters,
+        motif_out=motifs,
+        motif_hits=motif_hits,
+        fasta_file=fasta,
+        fasta_index_file=index,
+        motif_scoreboard_out=scoreboard,
+        motif_scoreboard_meta_out=scoreboard_meta,
+        min_cluster_size=1,
+        min_support=6,
+        force=False,
+        logger=logging.getLogger("test"),
+    )
+    second_meta = json.loads(scoreboard_meta.read_text(encoding="utf-8"))
+    assert second_meta["stats"]["stored_weights"] == 0
+    assert second_meta["stats"]["min_support"] == 6
+
+
 def test_build_library_skips_current_derived_artifacts(
     tmp_path: Path,
     monkeypatch,
@@ -271,7 +424,6 @@ def test_build_library_skips_current_derived_artifacts(
         path: Path(path).stat().st_mtime_ns
         for path in ["clusters.tsv", "clusters_stats.json", "clusters_meta.tsv"]
     }
-
     second_result = CliRunner().invoke(
         app,
         ["build-library", "--write-report", "report.txt"],
@@ -281,17 +433,16 @@ def test_build_library_skips_current_derived_artifacts(
     assert {
         path: Path(path).stat().st_mtime_ns for path in stable_mtimes
     } == stable_mtimes
-    assert all(
-        Path(path).stat().st_mtime_ns >= modified_time
-        for path, modified_time in refined_mtimes.items()
-    )
+    assert {
+        path: Path(path).stat().st_mtime_ns for path in refined_mtimes
+    } == refined_mtimes
     expected_log_fragments = [
         "Skipping GO graph build",
         "Skipping accession MF GO terms",
         "Skipping Swiss-Prot sequence FASTA and index",
         "Skipping ProSig motif library build",
         "Skipping Leiden GO clustering",
-        "Starting complete-linkage refinement",
+        "Skipping complete-linkage refinement",
     ]
     for expected in expected_log_fragments:
         assert expected in second_result.output
@@ -775,6 +926,31 @@ def test_write_accession_mf_go_tsv_uses_primary_accessions_and_hq_mf_terms(
 def _write_gzip(path: Path, text: str) -> None:
     with gzip.open(path, "wt", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def _write_test_indexed_fasta(
+    fasta_file: Path,
+    index_file: Path,
+    sequences: dict[str, str],
+) -> None:
+    with fasta_file.open("wb") as fasta_handle:
+        locations: dict[str, tuple[int, int]] = {}
+        for accession, sequence in sequences.items():
+            fasta_handle.write(f">{accession}\n".encode("ascii"))
+            offset = fasta_handle.tell()
+            fasta_handle.write(sequence.encode("ascii"))
+            fasta_handle.write(b"\n")
+            locations[accession] = (offset, len(sequence))
+    fasta_stat = fasta_file.stat()
+    with index_file.open("w", encoding="ascii") as index_handle:
+        index_handle.write("# Generated by test\n")
+        index_handle.write("# version\t1\n")
+        index_handle.write(f"# fasta_name\t{fasta_file.name}\n")
+        index_handle.write(f"# fasta_size\t{fasta_stat.st_size}\n")
+        index_handle.write(f"# fasta_mtime_ns\t{fasta_stat.st_mtime_ns}\n")
+        index_handle.write("accession\toffset\tlength\n")
+        for accession, (offset, length) in locations.items():
+            index_handle.write(f"{accession}\t{offset}\t{length}\n")
 
 
 def _small_obo() -> str:

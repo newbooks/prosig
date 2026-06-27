@@ -1,3 +1,4 @@
+import json
 import pickle
 from importlib.resources import files
 from pathlib import Path
@@ -23,6 +24,13 @@ from prosig.go.clustering import (
 )
 from prosig.io.freshness import artifact_is_stale
 from prosig.motifs.prosite import write_prosig_motif_library
+from prosig.motifs.scanning import (
+    DEFAULT_MOTIF_SCAN_PROCESSES,
+    MOTIF_SCAN_PROGRESS_INTERVAL_SECONDS,
+    motif_features_complete,
+    write_motif_features,
+)
+from prosig.prediction.motif_scoreboard import build_motif_cluster_scoreboard
 from prosig.sequences import write_swissprot_sequence_artifacts
 
 ROLE_MAP_TEMPLATE = files("prosig.data").joinpath("role_map.yaml.template")
@@ -115,6 +123,54 @@ def build_library(
             ),
         ),
     ] = Path("cluster_config.yaml"),
+    motif_hits: Annotated[
+        Path,
+        typer.Option(
+            "--motif-hits",
+            help=(
+                "Path to sparse motif hit TSV for building motif-cluster "
+                "prediction weights. If missing, scoreboard construction is skipped."
+            ),
+        ),
+    ] = Path("motif_features.tsv"),
+    motif_scoreboard_out: Annotated[
+        Path,
+        typer.Option(
+            "--motif-scoreboard-out",
+            help="Path to write pickled motif-cluster prediction weights.",
+        ),
+    ] = Path("motif_cluster_scoreboard.pkl"),
+    motif_scoreboard_meta_out: Annotated[
+        Path | None,
+        typer.Option(
+            "--motif-scoreboard-meta-out",
+            help=(
+                "Path to write motif-cluster scoreboard build metadata. "
+                "Defaults to <scoreboard stem>_meta.json."
+            ),
+        ),
+    ] = None,
+    motif_scoreboard_min_cluster_size: Annotated[
+        int,
+        typer.Option(
+            "--motif-scoreboard-min-cluster-size",
+            help="Minimum function-cluster size retained in motif scoreboard.",
+        ),
+    ] = 10,
+    motif_scoreboard_min_support: Annotated[
+        int,
+        typer.Option(
+            "--motif-scoreboard-min-support",
+            help="Minimum TP support retained for a motif-cluster pair.",
+        ),
+    ] = 5,
+    motif_scan_processes: Annotated[
+        int,
+        typer.Option(
+            "--motif-scan-processes",
+            help="Number of worker processes used for motif feature extraction.",
+        ),
+    ] = DEFAULT_MOTIF_SCAN_PROCESSES,
     force: Annotated[
         bool,
         typer.Option(
@@ -130,6 +186,21 @@ def build_library(
         raise typer.BadParameter(
             "must be greater than 0 and at most 1",
             param_hint="--min-cluster-similarity",
+        )
+    if motif_scoreboard_min_cluster_size < 1:
+        raise typer.BadParameter(
+            "must be at least 1",
+            param_hint="--motif-scoreboard-min-cluster-size",
+        )
+    if motif_scoreboard_min_support < 1:
+        raise typer.BadParameter(
+            "must be at least 1",
+            param_hint="--motif-scoreboard-min-support",
+        )
+    if motif_scan_processes < 1:
+        raise typer.BadParameter(
+            "must be at least 1",
+            param_hint="--motif-scan-processes",
         )
     if ensure_role_map_from_template(role_map, ROLE_MAP_TEMPLATE):
         logger.info("Created starter GO semantic role map: %s", role_map)
@@ -255,25 +326,54 @@ def build_library(
 
     cluster_meta_out = cluster_out.with_name(f"{cluster_out.stem}_meta.tsv")
     cluster_stats_out = cluster_out.with_name(f"{cluster_out.stem}_stats.json")
-    refinement_result = refine_go_clusters_complete_linkage(
-        accession_mf_go,
-        leiden_cluster_out,
-        go_artifact=artifact,
-        go_graph_file=go_out,
-        output_file=cluster_out,
-        meta_file=cluster_meta_out,
+    refinement_dependencies = [go_out, accession_mf_go, leiden_cluster_out]
+    refinement_outputs = [cluster_out, cluster_meta_out, cluster_stats_out]
+    if _refinement_outputs_current(
+        outputs=refinement_outputs,
+        dependencies=refinement_dependencies,
         stats_file=cluster_stats_out,
         min_cluster_similarity=min_cluster_similarity,
-        profile_cache_size_mb=parsed_cluster_config.profile_cache_size_mb,
-        progress_interval_seconds=parsed_cluster_config.progress_interval_seconds,
-    )
-    logger.info(
-        "Wrote refined GO clusters to %s with %s accessions in %s clusters; "
-        "singletons=%s",
-        refinement_result.output_file,
-        format_log_number(refinement_result.clustered_accessions),
-        format_log_number(refinement_result.refined_clusters),
-        format_log_number(refinement_result.refined_singletons),
+        force=force,
+    ):
+        logger.info(
+            "Skipping complete-linkage refinement: %s is current with %s",
+            _format_dependencies(refinement_outputs),
+            _format_dependencies(refinement_dependencies),
+        )
+    else:
+        refinement_result = refine_go_clusters_complete_linkage(
+            accession_mf_go,
+            leiden_cluster_out,
+            go_artifact=artifact,
+            go_graph_file=go_out,
+            output_file=cluster_out,
+            meta_file=cluster_meta_out,
+            stats_file=cluster_stats_out,
+            min_cluster_similarity=min_cluster_similarity,
+            profile_cache_size_mb=parsed_cluster_config.profile_cache_size_mb,
+            progress_interval_seconds=parsed_cluster_config.progress_interval_seconds,
+        )
+        logger.info(
+            "Wrote refined GO clusters to %s with %s accessions in %s clusters; "
+            "singletons=%s",
+            refinement_result.output_file,
+            format_log_number(refinement_result.clustered_accessions),
+            format_log_number(refinement_result.refined_clusters),
+            format_log_number(refinement_result.refined_singletons),
+        )
+    _refresh_motif_scoreboard(
+        cluster_out=cluster_out,
+        motif_out=motif_out,
+        motif_hits=motif_hits,
+        fasta_file=go_out.parent / "accession.fasta",
+        fasta_index_file=go_out.parent / "accession.fasta.idx",
+        motif_scoreboard_out=motif_scoreboard_out,
+        motif_scoreboard_meta_out=motif_scoreboard_meta_out,
+        min_cluster_size=motif_scoreboard_min_cluster_size,
+        min_support=motif_scoreboard_min_support,
+        motif_scan_processes=motif_scan_processes,
+        force=force,
+        logger=logger,
     )
 
 
@@ -380,6 +480,95 @@ def _refresh_go_side_artifacts(
             _format_dependencies(sequence_outputs),
             swissprot,
         )
+
+
+def _refinement_outputs_current(
+    *,
+    outputs: list[Path],
+    dependencies: list[Path],
+    stats_file: Path,
+    min_cluster_similarity: float,
+    force: bool,
+) -> bool:
+    if any(artifact_is_stale(output, dependencies, force=force) for output in outputs):
+        return False
+    try:
+        stats = json.loads(stats_file.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    return stats.get("min_cluster_similarity") == min_cluster_similarity
+
+
+def _refresh_motif_scoreboard(
+    *,
+    cluster_out: Path,
+    motif_out: Path,
+    motif_hits: Path,
+    fasta_file: Path,
+    fasta_index_file: Path,
+    motif_scoreboard_out: Path,
+    motif_scoreboard_meta_out: Path | None,
+    min_cluster_size: int,
+    min_support: int,
+    motif_scan_processes: int = DEFAULT_MOTIF_SCAN_PROCESSES,
+    force: bool,
+    logger,
+) -> None:
+    motif_feature_dependencies = [
+        cluster_out,
+        motif_out,
+        fasta_file,
+        fasta_index_file,
+    ]
+    if artifact_is_stale(
+        motif_hits,
+        motif_feature_dependencies,
+        force=force,
+    ) or not motif_features_complete(motif_hits):
+        motif_result = write_motif_features(
+            cluster_file=cluster_out,
+            motif_file=motif_out,
+            fasta_file=fasta_file,
+            fasta_index_file=fasta_index_file,
+            output_file=motif_hits,
+            processes=motif_scan_processes,
+            progress_interval_seconds=MOTIF_SCAN_PROGRESS_INTERVAL_SECONDS,
+            logger=logger,
+        )
+        logger.info(
+            "Wrote motif hit features to %s with %s rows",
+            motif_result.output_file,
+            format_log_number(motif_result.feature_rows),
+        )
+    else:
+        logger.info(
+            "Skipping motif feature extraction: %s is current with %s",
+            motif_hits,
+            _format_dependencies(motif_feature_dependencies),
+        )
+
+    meta_out = (
+        motif_scoreboard_meta_out
+        if motif_scoreboard_meta_out is not None
+        else motif_scoreboard_out.with_name(f"{motif_scoreboard_out.stem}_meta.json")
+    )
+    stats = build_motif_cluster_scoreboard(
+        cluster_file=cluster_out,
+        motif_hits_file=motif_hits,
+        output_file=motif_scoreboard_out,
+        meta_file=meta_out,
+        min_cluster_size=min_cluster_size,
+        min_support=min_support,
+    )
+    logger.info(
+        "Wrote motif-cluster scoreboard to %s with %s positive weights; "
+        "ignored cluster-size=%s, low-support=%s, non-positive=%s",
+        motif_scoreboard_out,
+        format_log_number(stats.stored_weights),
+        format_log_number(stats.ignored_cluster_size),
+        format_log_number(stats.ignored_low_support),
+        format_log_number(stats.ignored_non_positive_weight),
+    )
 
 
 def _format_dependencies(dependencies: list[Path]) -> str:
