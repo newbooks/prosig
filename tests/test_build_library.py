@@ -326,6 +326,69 @@ def test_motif_feature_refresh_rebuilds_partial_current_file(tmp_path: Path) -> 
     assert scoreboard_meta.exists()
 
 
+def test_refresh_motif_scoreboard_always_rebuilds_scoreboard_outputs(
+    tmp_path: Path,
+) -> None:
+    clusters = tmp_path / "clusters.tsv"
+    motifs = tmp_path / "prosig_motifs.tsv"
+    fasta = tmp_path / "accession.fasta"
+    index = tmp_path / "accession.fasta.idx"
+    motif_hits = tmp_path / "motif_features.tsv"
+    scoreboard = tmp_path / "motif_cluster_scoreboard.pkl"
+    scoreboard_meta = tmp_path / "motif_cluster_scoreboard_meta.json"
+    clusters.write_text(
+        "member_id\tcluster_id\n"
+        + "".join(f"A{i}\tcluster_0001\n" for i in range(1, 7))
+        + "".join(f"B{i}\tcluster_0002\n" for i in range(1, 7)),
+        encoding="utf-8",
+    )
+    motifs.write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "AA\tAA motif\tAA\tprosig\n",
+        encoding="utf-8",
+    )
+    _write_test_indexed_fasta(fasta, index, {"A1": "AA"})
+    motif_hits.write_text(
+        "accession\tmotif_id\n"
+        + "".join(f"A{i}\tmotif_a\n" for i in range(1, 6))
+        + "# completed\ttrue\n",
+        encoding="utf-8",
+    )
+
+    _refresh_motif_scoreboard(
+        cluster_out=clusters,
+        motif_out=motifs,
+        motif_hits=motif_hits,
+        fasta_file=fasta,
+        fasta_index_file=index,
+        motif_scoreboard_out=scoreboard,
+        motif_scoreboard_meta_out=scoreboard_meta,
+        min_cluster_size=1,
+        min_support=5,
+        force=False,
+        logger=logging.getLogger("test"),
+    )
+    first_meta = json.loads(scoreboard_meta.read_text(encoding="utf-8"))
+    assert first_meta["stats"]["stored_weights"] == 1
+
+    _refresh_motif_scoreboard(
+        cluster_out=clusters,
+        motif_out=motifs,
+        motif_hits=motif_hits,
+        fasta_file=fasta,
+        fasta_index_file=index,
+        motif_scoreboard_out=scoreboard,
+        motif_scoreboard_meta_out=scoreboard_meta,
+        min_cluster_size=1,
+        min_support=6,
+        force=False,
+        logger=logging.getLogger("test"),
+    )
+    second_meta = json.loads(scoreboard_meta.read_text(encoding="utf-8"))
+    assert second_meta["stats"]["stored_weights"] == 0
+    assert second_meta["stats"]["min_support"] == 6
+
+
 def test_build_library_skips_current_derived_artifacts(
     tmp_path: Path,
     monkeypatch,
@@ -361,7 +424,6 @@ def test_build_library_skips_current_derived_artifacts(
         path: Path(path).stat().st_mtime_ns
         for path in ["clusters.tsv", "clusters_stats.json", "clusters_meta.tsv"]
     }
-
     second_result = CliRunner().invoke(
         app,
         ["build-library", "--write-report", "report.txt"],

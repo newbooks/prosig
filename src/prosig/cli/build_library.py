@@ -552,19 +552,6 @@ def _refresh_motif_scoreboard(
         if motif_scoreboard_meta_out is not None
         else motif_scoreboard_out.with_name(f"{motif_scoreboard_out.stem}_meta.json")
     )
-    outputs = [motif_scoreboard_out, meta_out]
-    dependencies = [cluster_out, motif_hits]
-    if all(
-        not artifact_is_stale(output, dependencies, force=force)
-        for output in outputs
-    ):
-        logger.info(
-            "Skipping motif-cluster scoreboard: %s is current with %s",
-            _format_dependencies(outputs),
-            _format_dependencies(dependencies),
-        )
-        return
-
     stats = build_motif_cluster_scoreboard(
         cluster_file=cluster_out,
         motif_hits_file=motif_hits,

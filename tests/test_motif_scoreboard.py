@@ -102,6 +102,35 @@ def test_build_motif_cluster_scoreboard_accepts_sparse_two_column_hits(
     assert "cluster_0001" in artifact["weights"]["motif_strong"]
 
 
+def test_build_motif_cluster_scoreboard_skips_completion_marker(
+    tmp_path: Path,
+) -> None:
+    clusters = tmp_path / "clusters.tsv"
+    motif_hits = tmp_path / "motif_features.tsv"
+    output = tmp_path / "motif_cluster_scoreboard.pkl"
+    clusters.write_text(_cluster_rows(), encoding="utf-8")
+    motif_hits.write_text(
+        "accession\tmotif_id\n"
+        + "".join(f"A{i}\tmotif_strong\n" for i in range(1, 7))
+        + "".join(f"B{i}\tmotif_strong\n" for i in range(1, 3))
+        + "# completed\ttrue\n",
+        encoding="utf-8",
+    )
+
+    stats = build_motif_cluster_scoreboard(
+        cluster_file=clusters,
+        motif_hits_file=motif_hits,
+        output_file=output,
+        meta_file=None,
+        min_cluster_size=10,
+        min_support=5,
+    )
+
+    assert stats.motif_hit_rows == 8
+    assert stats.motif_hits_outside_clusters == 0
+    assert stats.motifs == 1
+
+
 def test_build_motif_cluster_scoreboard_validates_required_columns(
     tmp_path: Path,
 ) -> None:

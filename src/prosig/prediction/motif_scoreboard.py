@@ -244,6 +244,8 @@ def _load_motif_hits(
             raise ValueError(f"{path} missing required column(s): {missing}")
         for row in reader:
             accession = str(row.get("accession", "")).strip()
+            if accession.startswith("#"):
+                continue
             motif_id = str(row.get("motif_id", "")).strip()
             if not accession or not motif_id:
                 continue
