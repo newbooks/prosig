@@ -111,7 +111,7 @@ leiden_clusters_meta.tsv
 leiden_clusters_stats.json
 ```
 
-It then unconditionally runs complete-linkage refinement and writes:
+It then freshness-manages complete-linkage refinement and writes:
 
 ```text
 clusters.tsv
@@ -135,6 +135,35 @@ GO IDs per cluster. The signature step consumes final cluster membership,
 `accession_mf_go.tsv`, and `go_graph.pkl`; votes equally by accession;
 propagates direct MF terms to ancestors; scores candidates as `support × IC`;
 and writes only the selected GO IDs.
+
+`build-library` scans the motif library against final cluster member sequences
+to produce sparse motif hit features, then builds motif-based
+function-prediction weights:
+
+```text
+motif_features.tsv
+motif_cluster_scoreboard.pkl
+motif_cluster_scoreboard_meta.json
+```
+
+Relevant options:
+
+```text
+--motif-hits PATH
+--motif-scoreboard-out PATH
+--motif-scoreboard-meta-out PATH
+--motif-scoreboard-min-cluster-size INT
+--motif-scoreboard-min-support INT
+--motif-scan-processes INT
+```
+
+`--motif-hits` is the sparse feature output path and scoreboard input path. The
+motif pattern source is the `--motif-out` library, whose `prosig_pattern`
+column is compiled and scanned. Motif scanning uses 8 worker processes by
+default, controlled by `--motif-scan-processes`, and parent-process progress
+logs are emitted as accession chunks complete. The score board step skips
+clusters smaller than 10 by default, skips motif-cluster pairs with `TP < 5`,
+and stores only positive weights in the pickle artifact.
 
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when

@@ -150,25 +150,20 @@ Source-specific columns can be empty if the motif did not come from PROSITE.
 
 ## Match Features
 
-When a motif is scanned against a sequence, ProSig records one match per start
-position and allows overlapping matches.
+When a motif is scanned against a sequence for function prediction, ProSig uses
+binary motif detection. Scanning stops for that accession-motif pair as soon as
+the first positive hit is found. Motifs ending with the C-terminal anchor `>`
+are scanned from the possible C-terminal suffix positions instead of from every
+N-terminal start position.
 
-The current feature output is sparse: it writes only accession-motif pairs with
-at least one hit.
+The current feature output is sparse: it writes only positive accession-motif
+pairs. Row presence means the motif is present for that accession.
 
 ```text
-accession	motif_id	count	first_position	last_position	match_fraction
+accession	motif_id
 ```
 
-| Feature | Meaning |
-| --- | --- |
-| `count` | Number of motif matches. |
-| `first_position` | First match start, 1-based from the N terminus. |
-| `last_position` | Last match start, 1-based from the C terminus. |
-| `match_fraction` | `count / sequence_length`. |
-
-If no match is found, internal positional values are `0`, but no sparse output
-row is written. Empty sequences internally use `match_fraction = NA`.
+If no match is found, no sparse output row is written.
 
 ## Expanding The Motif Language
 
