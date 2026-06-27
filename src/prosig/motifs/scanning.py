@@ -84,7 +84,6 @@ class MotifFeatureWriteResult:
     accessions_scanned: int
     missing_sequences: int
     feature_rows: int
-    accessions_with_hits: int
     motifs_with_hits: int
 
 
@@ -239,7 +238,6 @@ def write_motif_features(
         accessions_scanned=accessions_scanned,
         missing_sequences=missing_sequences,
         feature_rows=feature_rows,
-        accessions_with_hits=0,
         motifs_with_hits=len(motifs_with_hits),
     )
 
