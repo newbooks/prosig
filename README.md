@@ -2,6 +2,25 @@
 
 ProSig: Protein Signature Discovery and Function Inference
 
+## Installation
+
+Install ProSig from PyPI:
+
+```bash
+pip install prosig
+```
+
+Verify the command-line entry point:
+
+```bash
+prosig version
+```
+
+The packaged installation includes the default runtime library needed by
+`prosig scan` and runtime `prosig inspect` commands. To build or refresh the
+library yourself, run `prosig setup-data` followed by `prosig build-library` in
+a working directory containing the downloaded data.
+
 ## Command Plan
 
 ProSig will expose a small command set that separates setup workflows from
@@ -10,14 +29,12 @@ routine analysis workflows:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable Leiden
   function clusters, and customizable motif library.
-- `prosig scan`: scan a sequence, FASTA file, or accession against the motif
+- `prosig scan`: scan a sequence or FASTA file against the motif
   library and infer motif-supported GO sets from the score board.
 - `prosig inspect`: inspect ProSig artifacts and diagnostic calculations,
   including GO terms and Lin similarity scores.
 - `prosig discover`: discover discriminative motifs from grouped function
   clusters and background sequences.
-- `prosig annotate`: scan sequence(s), report motif hits, and infer sequence
-  function from those motif hits as prediction evidence.
 
 `setup-data` and `build-library` are expected to be run less often than
 `discover` and `annotate`. Clustering is treated as part of library construction
@@ -26,13 +43,22 @@ prerequisite for the motif library. Function prediction is treated as part of
 annotation, because predictions should be reported together with the motif scan
 hits that justify them.
 
-`prosig scan` accepts `--seq`, `--fasta`, or `--accession`. It reports inferred
+`prosig scan` accepts `--seq` or `--fasta`. It reports inferred
 GO sets with raw motif-cluster weight, defaulting to the top 5 predictions with
 weight at least 2.0, and shows the strongest contributing motif signature for
 each prediction. Use `--top-n 0` to show all predictions. When score board
 calibration metadata is available, the observed set accuracy at the nearest
 lower calibration weight threshold is shown as a calibrated confidence
 reference.
+
+Runtime prediction and inspection commands load a complete core library rather
+than independently configurable artifact paths. Use `--library-dir DIR` to
+select a specific library. If omitted, ProSig uses the current working directory
+when any core library file is detected there; otherwise it falls back to the
+packaged default library. A detected directory must contain all core files:
+`prosig_motifs.tsv`, `motif_cluster_scoreboard.pkl`,
+`motif_cluster_scoreboard_meta.json`, `clusters_meta.tsv`, `go_graph.pkl`, and
+`accession_mf_go.tsv`.
 
 GO evidence-code filtering in `build-library` is intended to be used with the
 reviewed Swiss-Prot accession file `uniprot_sprot.dat.gz`. The excluded GO
@@ -46,6 +72,9 @@ MF GO terms for later diagnostics and GO set similarity.
 
 `build-library` skips derived artifacts that are newer than their dependencies.
 Use `--force` or `-f` to rebuild them anyway.
+Maintainers can add `--package` to copy those core runtime artifacts from the
+working directory into the package default library folder. `--package-dir` is
+available for an explicit target directory during packaging or tests.
 
 GO accession clustering builds a sparse GO-set similarity k-nearest-neighbor
 graph, writes freshness-managed Leiden artifacts (`leiden_clusters.tsv` and
@@ -89,9 +118,9 @@ prosig inspect go-term GO:0005524 --go-graph go_graph.pkl --ancestors
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl --verbose
 prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-style ascii
-prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
-prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --go-graph go_graph.pkl --accession-go accession_mf_go.tsv
-prosig inspect function cluster_0008 --go-graph go_graph.pkl --cluster-meta clusters_meta.tsv
+prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --library-dir .
+prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --library-dir .
+prosig inspect function cluster_0008 --library-dir .
 ```
 
 `build-library` also derives `accession.fasta` and
@@ -117,7 +146,5 @@ accessions, motifs, clustering inputs, and standalone similarity calculations.
 - `notebooks/`: exploratory analysis.
 - `scripts/`: operational helper scripts.
 
-## Initial TODOs
-
-- [ ] Fetch dependencies for offline use.
-- [ ] Implement a STREME-like discriminative protein motif discovery module for ProSig using k-mer enumeration, Fisher exact enrichment, motif generalization, and optional PWM refinement.
+To do:
+- [ ]: `prosig discover` is not implemented yet.

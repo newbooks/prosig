@@ -23,6 +23,7 @@ from prosig.go.clustering import (
     refine_go_clusters_complete_linkage,
 )
 from prosig.io.freshness import artifact_is_stale
+from prosig.library import CORE_LIBRARY_FILES, package_core_library
 from prosig.motifs.prosite import write_prosig_motif_library
 from prosig.motifs.scanning import (
     DEFAULT_MOTIF_SCAN_PROCESSES,
@@ -171,6 +172,26 @@ def build_library(
             help="Number of worker processes used for motif feature extraction.",
         ),
     ] = DEFAULT_MOTIF_SCAN_PROCESSES,
+    package: Annotated[
+        bool,
+        typer.Option(
+            "--package",
+            help=(
+                "Copy the core runtime library artifacts from the working "
+                "directory into the packaged default library directory."
+            ),
+        ),
+    ] = False,
+    package_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--package-dir",
+            help=(
+                "Optional package target directory. Intended for tests or "
+                "maintainers preparing package data."
+            ),
+        ),
+    ] = None,
     force: Annotated[
         bool,
         typer.Option(
@@ -375,6 +396,19 @@ def build_library(
         force=force,
         logger=logger,
     )
+    if package:
+        try:
+            packaged = package_core_library(
+                source_dir=Path.cwd(),
+                target_dir=package_dir,
+            )
+        except FileNotFoundError as exc:
+            raise typer.BadParameter(str(exc), param_hint="--package") from exc
+        logger.info(
+            "Packaged core runtime library to %s: %s",
+            packaged.directory,
+            _format_dependencies([Path(filename) for filename in CORE_LIBRARY_FILES]),
+        )
 
 
 def _load_go_artifact(path: Path) -> dict:

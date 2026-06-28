@@ -18,6 +18,7 @@ from prosig.go.build import (
     parse_swissprot_entry,
     write_accession_mf_go_tsv,
 )
+from prosig.library import CORE_LIBRARY_FILES
 from prosig.motifs.scanning import motif_features_complete
 
 
@@ -261,6 +262,9 @@ def test_build_library_writes_motif_scoreboard_when_hits_exist(
             "1",
             "--motif-scoreboard-min-support",
             "1",
+            "--package",
+            "--package-dir",
+            "packaged-library",
         ],
     )
 
@@ -275,6 +279,9 @@ def test_build_library_writes_motif_scoreboard_when_hits_exist(
     )
     assert meta["stats"]["min_cluster_size"] == 1
     assert meta["stats"]["min_support"] == 1
+    for filename in CORE_LIBRARY_FILES:
+        assert (Path("packaged-library") / filename).is_file()
+    assert "Packaged core runtime library" in result.output
 
 
 def test_motif_feature_refresh_rebuilds_partial_current_file(tmp_path: Path) -> None:

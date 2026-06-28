@@ -59,8 +59,8 @@ Start with these top-level subcommands:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable function
   clusters, and motif library.
-- `prosig scan`: scan one sequence, a FASTA file, or an indexed accession and
-  infer motif-supported GO sets.
+- `prosig scan`: scan one sequence or a FASTA file and infer motif-supported
+  GO sets.
 - `prosig inspect`: inspect GO terms, accessions, motifs, similarity scores,
   and other diagnostic artifacts.
 - `prosig discover`: discover sequence signatures from positive and background or negative sequence sets.
@@ -84,16 +84,24 @@ artifacts. Exactly one query source is required:
 ```text
 prosig scan --seq MSEQUENCE
 prosig scan --fasta queries.fasta
-prosig scan --accession P12345
 ```
 
-For each query, the command scans `prosig_motifs.tsv`, looks up matching motifs
-in `motif_cluster_scoreboard.pkl`, and reports inferred GO sets with
+For each query, the command loads the complete runtime library, scans
+`prosig_motifs.tsv`, looks up matching motifs in
+`motif_cluster_scoreboard.pkl`, and reports inferred GO sets with
 motif-cluster weight at or above `--min-weight` (`2.0` by default). The default
 screen and JSON report includes the top 5 inferred GO sets; use `--top-n N` to
 change the limit, or `--top-n 0` to report all inferred GO sets. Cluster
 metadata from `clusters_meta.tsv` provides composed GO terms and descriptions.
 Each prediction includes the strongest contributing motif signature.
+
+Runtime library selection is all-or-nothing. `--library-dir DIR` must point to a
+directory containing every core runtime file. When `--library-dir` is omitted,
+`scan` uses the current working directory if any core library file is present;
+otherwise it falls back to packaged defaults. The core files are
+`prosig_motifs.tsv`, `motif_cluster_scoreboard.pkl`,
+`motif_cluster_scoreboard_meta.json`, `clusters_meta.tsv`, `go_graph.pkl`, and
+`accession_mf_go.tsv`.
 
 When `motif_cluster_scoreboard_meta.json` contains calibration records, `scan`
 also reports a calibrated confidence reference: the observed `set_accuracy` at
@@ -122,6 +130,9 @@ Initial implemented commands:
   common ancestors, selected MICA, IC values, status, reason, formula, and a
   compact GO path. The path uses Unicode tree connectors by default; use
   `--tree-style ascii` for ASCII output.
+- `prosig inspect go-set-sim`, `prosig inspect function`, and
+  `prosig inspect cluster` use the same complete runtime library resolution as
+  `scan`; pass `--library-dir DIR` to override the selected library.
 
 Planned diagnostic commands include accession lookup, motif lookup, motif
 summary, GO term-set similarity, and cluster/member inspection.
@@ -185,6 +196,8 @@ Relevant options:
 --motif-scoreboard-min-cluster-size INT
 --motif-scoreboard-min-support INT
 --motif-scan-processes INT
+--package
+--package-dir PATH
 ```
 
 `--motif-hits` is the sparse feature output path and scoreboard input path. The
@@ -196,6 +209,13 @@ clusters smaller than 10 by default, skips motif-cluster pairs with `TP < 5`,
 stores only positive weights in the pickle artifact, and logs/internal-metadata
 reports calibration top-1, top-3, set accuracy, average prediction count, and
 coverage at weight thresholds 2.0 through 8.0 in 0.5 increments.
+
+`--package` copies the core runtime library artifacts from the working
+directory into the package default library directory so installed users can run
+`scan` and runtime `inspect` commands without first running `setup-data` and
+`build-library`. `--package-dir PATH` overrides the packaging target, mainly for
+maintainer workflows and tests. Packaging uses fixed filenames and fails if any
+core runtime file is missing.
 
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when
