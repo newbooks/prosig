@@ -3,6 +3,7 @@ from importlib.metadata import version as package_version
 
 import typer
 
+from prosig import __version__
 from prosig.cli.build_library import build_library
 from prosig.cli.inspect import inspect_app
 from prosig.cli.logging import configure_logging, log_level_names
@@ -24,7 +25,7 @@ def get_version() -> str:
     try:
         return package_version(APP_NAME)
     except PackageNotFoundError:
-        return "0+unknown"
+        return __version__
 
 
 @app.callback()
