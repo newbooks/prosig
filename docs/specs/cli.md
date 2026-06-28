@@ -121,15 +121,19 @@ discovery, or prediction.
 
 Initial implemented commands:
 
-- `prosig inspect go-summary --go-graph go_graph.pkl`: report GO artifact
-  metadata and IC coverage.
-- `prosig inspect go-term GO:0005524 --go-graph go_graph.pkl`: report one MF
-  GO term. `--ancestors` includes the term itself plus all ancestors.
-- `prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl`:
-  report the Lin similarity score. `--verbose` or `-v` adds term descriptions,
+- `prosig inspect go-summary`: report GO artifact metadata and IC coverage
+  from the resolved runtime library. `--go-graph PATH` overrides the library
+  GO graph for explicit artifact diagnostics.
+- `prosig inspect go-term GO:0005524`: report one MF GO term from the resolved
+  runtime library. `--ancestors` includes the term itself plus all ancestors.
+  `--go-graph PATH` overrides the library GO graph.
+- `prosig inspect go-sim GO:0005524 GO:0004672`: report the Lin similarity
+  score from the resolved runtime library. `--verbose` or `-v` adds term
+  descriptions,
   common ancestors, selected MICA, IC values, status, reason, formula, and a
   compact GO path. The path uses Unicode tree connectors by default; use
-  `--tree-style ascii` for ASCII output.
+  `--tree-style ascii` for ASCII output. `--go-graph PATH` overrides the
+  library GO graph.
 - `prosig inspect go-set-sim`, `prosig inspect function`, and
   `prosig inspect cluster` use the same complete runtime library resolution as
   `scan`; pass `--library-dir DIR` to override the selected library.

@@ -113,15 +113,19 @@ them. The initial GO commands use only the Molecular Function namespace and only
 the Lin semantic similarity score:
 
 ```text
-prosig inspect go-summary --go-graph go_graph.pkl
-prosig inspect go-term GO:0005524 --go-graph go_graph.pkl --ancestors
-prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl
-prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl --verbose
-prosig inspect go-sim GO:0005524 GO:0004672 --go-graph go_graph.pkl -v --tree-style ascii
+prosig inspect go-summary
+prosig inspect go-term GO:0005524 --ancestors
+prosig inspect go-sim GO:0005524 GO:0004672
+prosig inspect go-sim GO:0005524 GO:0004672 --verbose
+prosig inspect go-sim GO:0005524 GO:0004672 -v --tree-style ascii
 prosig inspect go-set-sim "(GO:0005524;GO:0004672)" Q9SVY5 --library-dir .
 prosig inspect go-set-sim "GO:0005524;GO:0004672" Q9SVY5 --library-dir .
 prosig inspect function cluster_0008 --library-dir .
 ```
+
+The GO inspection commands use the resolved runtime library by default. Use
+`--go-graph PATH` only when you want to inspect a specific GO graph pickle
+outside the selected runtime library.
 
 `build-library` also derives `accession.fasta` and
 `accession.fasta.idx` from the configured `uniprot_sprot.dat.gz`. FASTA labels

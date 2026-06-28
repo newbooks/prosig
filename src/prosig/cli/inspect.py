@@ -49,17 +49,44 @@ def _resolve_runtime_library(library_dir: Path | None):
         raise typer.BadParameter(str(exc), param_hint="--library-dir") from exc
 
 
+def _resolve_go_graph_path(
+    go_graph: Path | None,
+    library_dir: Path | None,
+) -> Path:
+    if go_graph is not None:
+        return go_graph
+    return _resolve_runtime_library(library_dir).path("go_graph.pkl")
+
+
 @inspect_app.command(name="go-summary")
 def go_summary(
     go_graph: Annotated[
-        Path,
-        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
-    ] = Path("go_graph.pkl"),
+        Path | None,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Optional path to a compact GO graph pickle. If omitted, "
+                "the resolved runtime library is used."
+            ),
+        ),
+    ] = None,
+    library_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Summarize the GO graph and IC artifact."""
-    similarity = _load_go_similarity(go_graph)
+    resolved_go_graph = _resolve_go_graph_path(go_graph, library_dir)
+    similarity = _load_go_similarity(resolved_go_graph)
     meta = similarity.meta
-    typer.echo(f"path\t{go_graph}")
+    typer.echo(f"path\t{resolved_go_graph}")
     typer.echo(f"namespace\t{meta.get('namespace', 'unknown')}")
     typer.echo(f"schema_version\t{meta.get('schema_version', 'unknown')}")
     typer.echo(f"terms\t{len(similarity.terms)}")
@@ -74,9 +101,26 @@ def go_summary(
 def go_term(
     go_id: Annotated[str, typer.Argument(help="Molecular Function GO term ID.")],
     go_graph: Annotated[
-        Path,
-        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
-    ] = Path("go_graph.pkl"),
+        Path | None,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Optional path to a compact GO graph pickle. If omitted, "
+                "the resolved runtime library is used."
+            ),
+        ),
+    ] = None,
+    library_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
+        ),
+    ] = None,
     show_ancestors: Annotated[
         bool,
         typer.Option("--ancestors", help="Print ancestors including the term itself."),
@@ -87,7 +131,7 @@ def go_term(
     ] = False,
 ) -> None:
     """Inspect one Molecular Function GO term."""
-    similarity = _load_go_similarity(go_graph)
+    similarity = _load_go_similarity(_resolve_go_graph_path(go_graph, library_dir))
     term = similarity.term(go_id)
     if term is None:
         raise typer.BadParameter(f"GO term not found in MF graph: {go_id}")
@@ -113,9 +157,26 @@ def go_sim(
     go1: Annotated[str, typer.Argument(help="First Molecular Function GO term ID.")],
     go2: Annotated[str, typer.Argument(help="Second Molecular Function GO term ID.")],
     go_graph: Annotated[
-        Path,
-        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
-    ] = Path("go_graph.pkl"),
+        Path | None,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Optional path to a compact GO graph pickle. If omitted, "
+                "the resolved runtime library is used."
+            ),
+        ),
+    ] = None,
+    library_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -142,7 +203,7 @@ def go_sim(
     if tree_style not in {"unicode", "ascii"}:
         raise typer.BadParameter("choose one of: unicode, ascii")
 
-    similarity = _load_go_similarity(go_graph)
+    similarity = _load_go_similarity(_resolve_go_graph_path(go_graph, library_dir))
     if not verbose and not json_output:
         typer.echo(_format_score(similarity.lin(go1, go2)))
         return

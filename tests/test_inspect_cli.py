@@ -375,6 +375,29 @@ def test_inspect_go_term_outputs_term_details(tmp_path) -> None:
     assert "GO:0000001,GO:0000002,GO:0003674" in result.stdout
 
 
+def test_inspect_go_term_uses_runtime_library_without_go_graph_option(
+    tmp_path,
+) -> None:
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "go-term",
+            "GO:0000002",
+            "--library-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "name\tchild A activity" in result.stdout
+    assert "ic\t2.0" in result.stdout
+
+
 def test_inspect_go_sim_outputs_simple_score(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
