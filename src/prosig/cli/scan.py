@@ -12,8 +12,8 @@ import typer
 
 from prosig.go.describe import describe_go_function
 from prosig.go.similarity import GoSimilarity
+from prosig.library import resolve_core_library
 from prosig.motifs.scanning import motif_present, read_prosig_motif_library
-from prosig.sequences import indexed_fasta_sequence
 
 
 @dataclass(frozen=True)
@@ -38,62 +38,17 @@ def scan(
         Path | None,
         typer.Option("--fasta", help="FASTA file containing query sequence(s)."),
     ] = None,
-    accession: Annotated[
-        str | None,
+    library_dir: Annotated[
+        Path | None,
         typer.Option(
-            "--accession",
-            help="Accession ID to resolve from accession.fasta.",
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, scan uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
         ),
     ] = None,
-    fasta_index: Annotated[
-        Path,
-        typer.Option(
-            "--fasta-index",
-            help="Index path used with --accession.",
-        ),
-    ] = Path("accession.fasta.idx"),
-    accession_fasta: Annotated[
-        Path,
-        typer.Option(
-            "--accession-fasta",
-            help="FASTA path used with --accession.",
-        ),
-    ] = Path("accession.fasta"),
-    motif_library: Annotated[
-        Path,
-        typer.Option(
-            "--motif-library",
-            help="Path to prosig_motifs.tsv from build-library.",
-        ),
-    ] = Path("prosig_motifs.tsv"),
-    motif_scoreboard: Annotated[
-        Path,
-        typer.Option(
-            "--motif-scoreboard",
-            help="Path to motif_cluster_scoreboard.pkl from build-library.",
-        ),
-    ] = Path("motif_cluster_scoreboard.pkl"),
-    motif_scoreboard_meta: Annotated[
-        Path,
-        typer.Option(
-            "--motif-scoreboard-meta",
-            help="Path to motif_cluster_scoreboard_meta.json from build-library.",
-        ),
-    ] = Path("motif_cluster_scoreboard_meta.json"),
-    cluster_meta: Annotated[
-        Path,
-        typer.Option(
-            "--cluster-meta",
-            help="Path to clusters_meta.tsv from build-library.",
-        ),
-    ] = Path("clusters_meta.tsv"),
-    go_graph: Annotated[
-        Path,
-        typer.Option(
-            "--go-graph",
-            help="Path to go_graph.pkl for deriving descriptions when needed.",
-        ),
-    ] = Path("go_graph.pkl"),
     min_weight: Annotated[
         float,
         typer.Option(
@@ -119,16 +74,17 @@ def scan(
     queries = _resolve_queries(
         seq=seq,
         fasta=fasta,
-        accession=accession,
-        accession_fasta=accession_fasta,
-        fasta_index=fasta_index,
     )
-    motifs = read_prosig_motif_library(motif_library)
+    try:
+        library = resolve_core_library(library_dir)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    motifs = read_prosig_motif_library(library.path("prosig_motifs.tsv"))
     motifs_by_name = {motif.name: motif for motif in motifs}
-    scoreboard = _load_scoreboard(motif_scoreboard)
-    clusters = _load_cluster_meta(cluster_meta)
-    calibration = _load_calibration(motif_scoreboard_meta)
-    similarity = _load_similarity_if_available(go_graph)
+    scoreboard = _load_scoreboard(library.path("motif_cluster_scoreboard.pkl"))
+    clusters = _load_cluster_meta(library.path("clusters_meta.tsv"))
+    calibration = _load_calibration(library.path("motif_cluster_scoreboard_meta.json"))
+    similarity = _load_similarity_if_available(library.path("go_graph.pkl"))
 
     reports = [
         _scan_one_query(
@@ -144,7 +100,15 @@ def scan(
         )
         for query in queries
     ]
-    payload = {"queries": reports, "min_weight": min_weight, "top_n": top_n}
+    payload = {
+        "queries": reports,
+        "min_weight": min_weight,
+        "top_n": top_n,
+        "library": {
+            "source": library.source,
+            "directory": str(library.directory),
+        },
+    }
 
     if json_out is not None:
         json_out.parent.mkdir(parents=True, exist_ok=True)
@@ -154,20 +118,25 @@ def scan(
         )
         return
 
-    typer.echo(_format_scan_reports(reports, min_weight=min_weight, top_n=top_n))
+    typer.echo(
+        _format_scan_reports(
+            reports,
+            min_weight=min_weight,
+            top_n=top_n,
+            library_source=library.source,
+            library_dir=library.directory,
+        )
+    )
 
 
 def _resolve_queries(
     *,
     seq: str | None,
     fasta: Path | None,
-    accession: str | None,
-    accession_fasta: Path,
-    fasta_index: Path,
 ) -> list[_QuerySequence]:
-    inputs = [seq is not None, fasta is not None, accession is not None]
+    inputs = [seq is not None, fasta is not None]
     if sum(inputs) != 1:
-        raise typer.BadParameter("provide exactly one of --seq, --fasta, --accession")
+        raise typer.BadParameter("provide exactly one of --seq, --fasta")
     if seq is not None:
         sequence = _normalize_sequence(seq)
         if not sequence:
@@ -175,18 +144,7 @@ def _resolve_queries(
         return [_QuerySequence("sequence", sequence)]
     if fasta is not None:
         return list(_read_fasta_queries(fasta))
-    assert accession is not None
-    try:
-        sequence = indexed_fasta_sequence(accession, accession_fasta, fasta_index)
-    except FileNotFoundError as exc:
-        raise typer.BadParameter(f"FASTA artifact not found: {exc.filename}") from exc
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    if sequence is None:
-        raise typer.BadParameter(
-            f"accession not found in {accession_fasta}: {accession}"
-        )
-    return [_QuerySequence(accession, sequence)]
+    raise AssertionError("unreachable query input state")
 
 
 def _read_fasta_queries(path: Path):
@@ -431,11 +389,14 @@ def _format_scan_reports(
     *,
     min_weight: float,
     top_n: int,
+    library_source: str,
+    library_dir: Path,
 ) -> str:
-    blocks = [
+    blocks = [f"Library:       {library_source} ({library_dir})", ""]
+    blocks.extend(
         _format_one_scan_report(report, min_weight=min_weight, top_n=top_n)
         for report in reports
-    ]
+    )
     return "\n\n".join(blocks)
 
 

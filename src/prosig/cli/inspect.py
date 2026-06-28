@@ -22,6 +22,7 @@ from prosig.go.similarity import (
     load_accession_mf_go_terms,
     resolve_go_set_query,
 )
+from prosig.library import resolve_core_library
 
 CLUSTER_ID_PATTERN = re.compile(r"^cluster_\d+$")
 
@@ -39,6 +40,13 @@ def _load_go_similarity(go_graph: Path) -> GoSimilarity:
         raise typer.BadParameter(f"GO graph file not found: {go_graph}") from exc
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _resolve_runtime_library(library_dir: Path | None):
+    try:
+        return resolve_core_library(library_dir)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--library-dir") from exc
 
 
 @inspect_app.command(name="go-summary")
@@ -170,17 +178,17 @@ def go_set_sim(
             )
         ),
     ],
-    go_graph: Annotated[
-        Path,
-        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
-    ] = Path("go_graph.pkl"),
-    accession_go: Annotated[
-        Path,
+    library_dir: Annotated[
+        Path | None,
         typer.Option(
-            "--accession-go",
-            help="Path to accession_mf_go.tsv from build-library.",
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
         ),
-    ] = Path("accession_mf_go.tsv"),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -195,8 +203,13 @@ def go_set_sim(
     ] = False,
 ) -> None:
     """Inspect AMB Lin similarity between two MF GO term sets."""
-    similarity = _load_go_similarity(go_graph)
-    terms1, terms2 = _resolve_go_set_queries(set1, set2, accession_go)
+    library = _resolve_runtime_library(library_dir)
+    similarity = _load_go_similarity(library.path("go_graph.pkl"))
+    terms1, terms2 = _resolve_go_set_queries(
+        set1,
+        set2,
+        library.path("accession_mf_go.tsv"),
+    )
 
     if not verbose and not json_output:
         typer.echo(_format_score(similarity.set_lin_amb(terms1, terms2)))
@@ -226,24 +239,17 @@ def function(
             )
         ),
     ],
-    go_graph: Annotated[
-        Path,
-        typer.Option("--go-graph", help="Path to the compact GO graph pickle."),
-    ] = Path("go_graph.pkl"),
-    accession_go: Annotated[
-        Path,
+    library_dir: Annotated[
+        Path | None,
         typer.Option(
-            "--accession-go",
-            help="Path to accession_mf_go.tsv from build-library.",
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
+            ),
         ),
-    ] = Path("accession_mf_go.tsv"),
-    cluster_meta: Annotated[
-        Path,
-        typer.Option(
-            "--cluster-meta",
-            help="Path to clusters_meta.tsv from build-library.",
-        ),
-    ] = Path("clusters_meta.tsv"),
+    ] = None,
     max_modifiers: Annotated[
         int,
         typer.Option(
@@ -266,11 +272,12 @@ def function(
     ] = False,
 ) -> None:
     """Describe function from an accession, cluster ID, or MF GO term set."""
-    similarity = _load_go_similarity(go_graph)
+    library = _resolve_runtime_library(library_dir)
+    similarity = _load_go_similarity(library.path("go_graph.pkl"))
     terms = _resolve_function_query(
         query,
-        accession_go=accession_go,
-        cluster_meta=cluster_meta,
+        accession_go=library.path("accession_mf_go.tsv"),
+        cluster_meta=library.path("clusters_meta.tsv"),
     )
     result = describe_go_function(
         query,
@@ -312,37 +319,17 @@ def cluster(
         str,
         typer.Argument(help="Function cluster ID, e.g. cluster_0008."),
     ],
-    go_graph: Annotated[
-        Path,
+    library_dir: Annotated[
+        Path | None,
         typer.Option(
-            "--go-graph",
+            "--library-dir",
             help=(
-                "Path to the compact GO graph pickle. Used to derive composed "
-                "description when clusters_meta.tsv does not provide one."
+                "Directory containing the complete ProSig runtime library. "
+                "If omitted, inspect uses all core files from the current "
+                "directory when any are present, otherwise packaged defaults."
             ),
         ),
-    ] = Path("go_graph.pkl"),
-    cluster_meta: Annotated[
-        Path,
-        typer.Option(
-            "--cluster-meta",
-            help="Path to clusters_meta.tsv from build-library.",
-        ),
-    ] = Path("clusters_meta.tsv"),
-    motif_scoreboard: Annotated[
-        Path,
-        typer.Option(
-            "--motif-scoreboard",
-            help="Path to motif_cluster_scoreboard.pkl from build-library.",
-        ),
-    ] = Path("motif_cluster_scoreboard.pkl"),
-    motif_library: Annotated[
-        Path,
-        typer.Option(
-            "--motif-library",
-            help="Path to prosig_motifs.tsv from build-library.",
-        ),
-    ] = Path("prosig_motifs.tsv"),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Write cluster inspection report as JSON."),
@@ -351,10 +338,19 @@ def cluster(
     """Inspect one function cluster and its positive motif-cluster weights."""
     if not _is_cluster_id_input(cluster_id):
         raise typer.BadParameter("cluster ID must look like cluster_0008")
+    library = _resolve_runtime_library(library_dir)
     try:
-        cluster_record = _load_cluster_record(cluster_meta, cluster_id)
-        motif_descriptions = _load_motif_descriptions(motif_library)
-        motif_records = _load_cluster_motif_records(motif_scoreboard, cluster_id)
+        cluster_record = _load_cluster_record(
+            library.path("clusters_meta.tsv"),
+            cluster_id,
+        )
+        motif_descriptions = _load_motif_descriptions(
+            library.path("prosig_motifs.tsv"),
+        )
+        motif_records = _load_cluster_motif_records(
+            library.path("motif_cluster_scoreboard.pkl"),
+            cluster_id,
+        )
     except FileNotFoundError as exc:
         raise typer.BadParameter(f"required file not found: {exc.filename}") from exc
     except ValueError as exc:
@@ -366,7 +362,7 @@ def cluster(
         composed_description = _describe_cluster_go_terms(
             cluster_id,
             composed_go,
-            go_graph,
+            library.path("go_graph.pkl"),
         )
 
     motifs = [

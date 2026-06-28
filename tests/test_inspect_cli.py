@@ -307,6 +307,31 @@ def _write_motif_scoreboard(path, weights) -> None:
         pickle.dump(artifact, handle)
 
 
+def _write_runtime_library_defaults(tmp_path):
+    if not (tmp_path / "go_graph.pkl").exists():
+        _write_go_graph(tmp_path / "go_graph.pkl")
+    if not (tmp_path / "accession_mf_go.tsv").exists():
+        (tmp_path / "accession_mf_go.tsv").write_text("", encoding="utf-8")
+    if not (tmp_path / "clusters_meta.tsv").exists():
+        (tmp_path / "clusters_meta.tsv").write_text(
+            "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\n",
+            encoding="utf-8",
+        )
+    if not (tmp_path / "prosig_motifs.tsv").exists():
+        (tmp_path / "prosig_motifs.tsv").write_text(
+            "name\tdescription\tprosig_pattern\tstatus\n",
+            encoding="utf-8",
+        )
+    if not (tmp_path / "motif_cluster_scoreboard.pkl").exists():
+        _write_motif_scoreboard(tmp_path / "motif_cluster_scoreboard.pkl", {})
+    if not (tmp_path / "motif_cluster_scoreboard_meta.json").exists():
+        (tmp_path / "motif_cluster_scoreboard_meta.json").write_text(
+            json.dumps({"stats": {"calibration": []}}),
+            encoding="utf-8",
+        )
+    return tmp_path
+
+
 def test_inspect_help_lists_diagnostic_commands() -> None:
     result = CliRunner().invoke(app, ["inspect", "-h"])
 
@@ -325,7 +350,7 @@ def test_inspect_function_help_lists_cluster_id_argument_type() -> None:
 
     assert result.exit_code == 0
     assert "Accession, cluster ID, or MF GO set" in result.stdout
-    assert "--cluster-meta" in result.stdout
+    assert "--library-dir" in result.stdout
 
 
 def test_inspect_go_term_outputs_term_details(tmp_path) -> None:
@@ -493,6 +518,7 @@ def test_inspect_go_set_sim_help_mentions_quoting() -> None:
 def test_inspect_go_set_sim_outputs_simple_score_for_direct_sets(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -501,8 +527,8 @@ def test_inspect_go_set_sim_outputs_simple_score_for_direct_sets(tmp_path) -> No
             "go-set-sim",
             "(GO:0000002;GO:0000003)",
             "(GO:0000002)",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -515,6 +541,7 @@ def test_inspect_go_set_sim_allows_mixed_set_and_accession(tmp_path) -> None:
     accession_go = tmp_path / "accession_mf_go.tsv"
     _write_go_graph(go_graph)
     accession_go.write_text("P00001\tGO:0000002\n", encoding="utf-8")
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -523,10 +550,8 @@ def test_inspect_go_set_sim_allows_mixed_set_and_accession(tmp_path) -> None:
             "go-set-sim",
             "(GO:0000002;GO:0000003)",
             "P00001",
-            "--go-graph",
-            str(go_graph),
-            "--accession-go",
-            str(accession_go),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -537,6 +562,7 @@ def test_inspect_go_set_sim_allows_mixed_set_and_accession(tmp_path) -> None:
 def test_inspect_go_set_sim_accepts_quoted_set_without_parentheses(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -545,8 +571,8 @@ def test_inspect_go_set_sim_accepts_quoted_set_without_parentheses(tmp_path) -> 
             "go-set-sim",
             "GO:0000002;GO:0000003",
             "GO:0000002",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -560,6 +586,7 @@ def test_inspect_go_set_sim_simple_output_does_not_build_details(
 ) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("simple go-set-sim should use scalar set_lin_amb()")
@@ -573,8 +600,8 @@ def test_inspect_go_set_sim_simple_output_does_not_build_details(
             "go-set-sim",
             "(GO:0000002;GO:0000003)",
             "(GO:0000002)",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -585,6 +612,7 @@ def test_inspect_go_set_sim_simple_output_does_not_build_details(
 def test_inspect_go_set_sim_verbose_explains_amb_score(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -593,8 +621,8 @@ def test_inspect_go_set_sim_verbose_explains_amb_score(tmp_path) -> None:
             "go-set-sim",
             "(GO:0000002;GO:0000003)",
             "(GO:0000002)",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--verbose",
         ],
     )
@@ -624,6 +652,7 @@ def test_inspect_go_set_sim_verbose_expands_accession_query(tmp_path) -> None:
     accession_go = tmp_path / "accession_mf_go.tsv"
     _write_go_graph(go_graph)
     accession_go.write_text("P00001\tGO:0000002;GO:0000003\n", encoding="utf-8")
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -632,10 +661,8 @@ def test_inspect_go_set_sim_verbose_expands_accession_query(tmp_path) -> None:
             "go-set-sim",
             "P00001",
             "(GO:0000002)",
-            "--go-graph",
-            str(go_graph),
-            "--accession-go",
-            str(accession_go),
+            "--library-dir",
+            str(tmp_path),
             "--verbose",
         ],
     )
@@ -649,6 +676,7 @@ def test_inspect_go_set_sim_verbose_expands_accession_query(tmp_path) -> None:
 def test_inspect_function_describes_direct_go_set(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -656,8 +684,8 @@ def test_inspect_function_describes_direct_go_set(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0004672;GO:0005524;GO:0000287;GO:0016740",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -677,6 +705,7 @@ def test_inspect_function_describes_accession(tmp_path) -> None:
         "P00001\tGO:0004672;GO:0005524;GO:0000287\n",
         encoding="utf-8",
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -684,10 +713,8 @@ def test_inspect_function_describes_accession(tmp_path) -> None:
             "inspect",
             "function",
             "P00001",
-            "--go-graph",
-            str(go_graph),
-            "--accession-go",
-            str(accession_go),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -701,6 +728,7 @@ def test_inspect_function_describes_accession(tmp_path) -> None:
 def test_inspect_function_omits_article_for_binding_only_head(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -708,8 +736,8 @@ def test_inspect_function_omits_article_for_binding_only_head(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0005515",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -720,6 +748,7 @@ def test_inspect_function_omits_article_for_binding_only_head(tmp_path) -> None:
 def test_inspect_function_omits_article_for_cofactor_binding_head(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -727,8 +756,8 @@ def test_inspect_function_omits_article_for_cofactor_binding_head(tmp_path) -> N
             "inspect",
             "function",
             "GO:0005524",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -739,6 +768,7 @@ def test_inspect_function_omits_article_for_cofactor_binding_head(tmp_path) -> N
 def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -746,8 +776,8 @@ def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0004672;GO:0005524;GO:0000287",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--max-modifiers",
             "0",
         ],
@@ -763,6 +793,7 @@ def test_inspect_function_honors_zero_max_modifiers(tmp_path) -> None:
 def test_inspect_function_excludes_dropped_ancestors_from_support(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -770,8 +801,8 @@ def test_inspect_function_excludes_dropped_ancestors_from_support(tmp_path) -> N
             "inspect",
             "function",
             "GO:0004672;GO:0016740",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -789,6 +820,7 @@ def test_inspect_function_excludes_dropped_ancestors_from_support(tmp_path) -> N
 def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -796,8 +828,8 @@ def test_inspect_function_uses_compiled_role_priority_for_head(tmp_path) -> None
             "inspect",
             "function",
             "GO:0044183;GO:0005524",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -823,6 +855,7 @@ def test_inspect_function_uses_fallback_role_priority_for_legacy_graph(
     artifact["terms"]["GO:0005524"]["ic"] = 10.0
     with go_graph.open("wb") as handle:
         pickle.dump(artifact, handle)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -830,8 +863,8 @@ def test_inspect_function_uses_fallback_role_priority_for_legacy_graph(
             "inspect",
             "function",
             "GO:0004672;GO:0005524",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -851,6 +884,7 @@ def test_inspect_function_fallback_checks_specific_roles_before_binding(
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
     _strip_semantic_roles(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -858,8 +892,8 @@ def test_inspect_function_fallback_checks_specific_roles_before_binding(
             "inspect",
             "function",
             "GO:0003700;GO:0043565",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -879,6 +913,7 @@ def test_inspect_function_fallback_unknown_for_unmatched_activity(tmp_path) -> N
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
     _strip_semantic_roles(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -886,8 +921,8 @@ def test_inspect_function_fallback_unknown_for_unmatched_activity(tmp_path) -> N
             "inspect",
             "function",
             "GO:0004672;GO:0060089",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -906,6 +941,7 @@ def test_inspect_function_fallback_unknown_for_unmatched_activity(tmp_path) -> N
 def test_inspect_function_keeps_non_head_activity_as_support(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -913,8 +949,8 @@ def test_inspect_function_keeps_non_head_activity_as_support(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0004497;GO:0016705",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -933,6 +969,7 @@ def test_inspect_function_keeps_non_head_activity_as_support(tmp_path) -> None:
 def test_inspect_function_replaces_binding_prefix_in_head(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -940,8 +977,8 @@ def test_inspect_function_replaces_binding_prefix_in_head(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0003700;GO:0043565",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -960,6 +997,7 @@ def test_inspect_function_replaces_binding_prefix_in_head(tmp_path) -> None:
 def test_inspect_function_replaces_binding_prefix_before_merging(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -967,8 +1005,8 @@ def test_inspect_function_replaces_binding_prefix_before_merging(tmp_path) -> No
             "inspect",
             "function",
             "GO:0003700;GO:0043565;GO:0003723",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )
@@ -999,6 +1037,7 @@ def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
         "P00001\tGO:0004672;GO:0005524;GO:0000287;GO:0016740\n",
         encoding="utf-8",
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1006,10 +1045,8 @@ def test_inspect_function_verbose_shows_resolved_terms(tmp_path) -> None:
             "inspect",
             "function",
             "P00001",
-            "--go-graph",
-            str(go_graph),
-            "--accession-go",
-            str(accession_go),
+            "--library-dir",
+            str(tmp_path),
             "--verbose",
         ],
     )
@@ -1047,6 +1084,7 @@ def test_inspect_function_resolves_cluster_id_from_clusters_meta(
         "cluster_0008\tNA\tNA\tNA\t1\tGO:0044183\n",
         encoding="utf-8",
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1054,8 +1092,8 @@ def test_inspect_function_resolves_cluster_id_from_clusters_meta(
             "inspect",
             "function",
             "cluster_0007",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -1077,6 +1115,7 @@ def test_inspect_function_verbose_resolves_cluster_id_from_clusters_meta(
         "cluster_0008\tNA\tNA\tNA\t1\tGO:0044183\n",
         encoding="utf-8",
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1084,8 +1123,8 @@ def test_inspect_function_verbose_resolves_cluster_id_from_clusters_meta(
             "inspect",
             "function",
             "cluster_0008",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--verbose",
         ],
     )
@@ -1109,6 +1148,7 @@ def test_inspect_function_rejects_missing_cluster_id(tmp_path, monkeypatch) -> N
         "cluster_0007\t0.90000\t0.80000\t1.00000\t4\tGO:0004672\n",
         encoding="utf-8",
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1116,8 +1156,8 @@ def test_inspect_function_rejects_missing_cluster_id(tmp_path, monkeypatch) -> N
             "inspect",
             "function",
             "cluster_0008",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -1179,6 +1219,7 @@ def test_inspect_cluster_reports_go_description_and_identifying_motifs(
             },
         },
     )
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1186,8 +1227,8 @@ def test_inspect_cluster_reports_go_description_and_identifying_motifs(
             "inspect",
             "cluster",
             "cluster_0007",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
         ],
     )
 
@@ -1236,8 +1277,12 @@ def test_inspect_cluster_uses_composed_description_when_available(
         encoding="utf-8",
     )
     _write_motif_scoreboard(tmp_path / "motif_cluster_scoreboard.pkl", {})
+    _write_runtime_library_defaults(tmp_path)
 
-    result = CliRunner().invoke(app, ["inspect", "cluster", "cluster_0008"])
+    result = CliRunner().invoke(
+        app,
+        ["inspect", "cluster", "cluster_0008", "--library-dir", str(tmp_path)],
+    )
 
     assert result.exit_code == 0
     assert "Description:     Custom description" in result.stdout
@@ -1247,6 +1292,7 @@ def test_inspect_cluster_uses_composed_description_when_available(
 def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:
     go_graph = tmp_path / "go_graph.pkl"
     _write_function_go_graph(go_graph)
+    _write_runtime_library_defaults(tmp_path)
 
     result = CliRunner().invoke(
         app,
@@ -1254,8 +1300,8 @@ def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:
             "inspect",
             "function",
             "GO:0004672;GO:0005524",
-            "--go-graph",
-            str(go_graph),
+            "--library-dir",
+            str(tmp_path),
             "--json",
         ],
     )

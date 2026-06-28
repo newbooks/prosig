@@ -50,6 +50,14 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "prosig.data" = ["*.template"]
+"prosig.library.default" = [
+  "prosig_motifs.tsv",
+  "motif_cluster_scoreboard.pkl",
+  "motif_cluster_scoreboard_meta.json",
+  "clusters_meta.tsv",
+  "go_graph.pkl",
+  "accession_mf_go.tsv",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
