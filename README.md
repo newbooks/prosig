@@ -147,4 +147,4 @@ accessions, motifs, clustering inputs, and standalone similarity calculations.
 - `scripts/`: operational helper scripts.
 
 To do:
-- [ ]: `prosig discover` is not implemented yet.
+- [ ] `prosig discover` is not implemented yet.
