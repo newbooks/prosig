@@ -296,6 +296,17 @@ def _strip_semantic_roles(path) -> None:
         pickle.dump(artifact, handle)
 
 
+def _write_motif_scoreboard(path, weights) -> None:
+    artifact = {
+        "schema_version": "1.0",
+        "kind": "motif_cluster_scoreboard",
+        "parameters": {},
+        "weights": weights,
+    }
+    with path.open("wb") as handle:
+        pickle.dump(artifact, handle)
+
+
 def test_inspect_help_lists_diagnostic_commands() -> None:
     result = CliRunner().invoke(app, ["inspect", "-h"])
 
@@ -305,6 +316,7 @@ def test_inspect_help_lists_diagnostic_commands() -> None:
     assert "go-sim" in result.stdout
     assert "go-set-sim" in result.stdout
     assert "function" in result.stdout
+    assert "cluster" in result.stdout
     assert "go-similarity" not in result.stdout
 
 
@@ -1111,6 +1123,125 @@ def test_inspect_function_rejects_missing_cluster_id(tmp_path, monkeypatch) -> N
 
     assert result.exit_code != 0
     assert "cluster ID not found" in result.stderr
+
+
+def test_inspect_cluster_reports_go_description_and_identifying_motifs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    go_graph = tmp_path / "go_graph.pkl"
+    _write_function_go_graph(go_graph)
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\n"
+        "cluster_0007\t0.90000\t0.80000\t1.00000\t10\tGO:0004672;GO:0005524\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "prosig_motifs.tsv").write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "MOTIF_A\tKinase active-site motif\tAA\tprosig\n"
+        "MOTIF_B\tATP-binding motif\tBB\tprosig\n",
+        encoding="utf-8",
+    )
+    _write_motif_scoreboard(
+        tmp_path / "motif_cluster_scoreboard.pkl",
+        {
+            "MOTIF_B": {
+                "cluster_0007": {
+                    "motif_id": "MOTIF_B",
+                    "cluster_id": "cluster_0007",
+                    "TP": 5,
+                    "FP": 5,
+                    "FN": 5,
+                    "TN": 15,
+                    "weight": 1.0,
+                },
+            },
+            "MOTIF_A": {
+                "cluster_0007": {
+                    "motif_id": "MOTIF_A",
+                    "cluster_id": "cluster_0007",
+                    "TP": 6,
+                    "FP": 2,
+                    "FN": 4,
+                    "TN": 18,
+                    "weight": 2.5849625007,
+                },
+                "cluster_9999": {
+                    "motif_id": "MOTIF_A",
+                    "cluster_id": "cluster_9999",
+                    "TP": 1,
+                    "FP": 1,
+                    "FN": 1,
+                    "TN": 1,
+                    "weight": 1.0,
+                },
+            },
+        },
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "cluster",
+            "cluster_0007",
+            "--go-graph",
+            str(go_graph),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Cluster ID:      cluster_0007" in result.stdout
+    assert "Cluster Size:    10" in result.stdout
+    assert "Composed GO:     GO:0004672;GO:0005524" in result.stdout
+    assert (
+        "Description:     cluster_0007 is annotated as an ATP-binding "
+        "protein kinase."
+    ) in result.stdout
+    assert "Motif Hits:" in result.stdout
+    assert "1. MOTIF_A" in result.stdout
+    assert "Kinase active-site motif" in result.stdout
+    assert "Motif present" in result.stdout
+    assert "Motif absent" in result.stdout
+    assert "6" in result.stdout
+    assert "2" in result.stdout
+    assert "4" in result.stdout
+    assert "18" in result.stdout
+    assert "Odds ratio:  13.5" in result.stdout
+    assert "Weight:      2.585" in result.stdout
+    assert "2. MOTIF_B" in result.stdout
+    assert "ATP-binding motif" in result.stdout
+    assert "5" in result.stdout
+    assert "15" in result.stdout
+    assert "Odds ratio:  3" in result.stdout
+    assert "Weight:      1" in result.stdout
+    assert result.stdout.index("MOTIF_A") < result.stdout.index("MOTIF_B")
+    assert "cluster_9999" not in result.stdout
+
+
+def test_inspect_cluster_uses_composed_description_when_available(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\t"
+        "composed_description\n"
+        "cluster_0008\tNA\tNA\tNA\t1\tGO:0044183\tCustom description\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "prosig_motifs.tsv").write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n",
+        encoding="utf-8",
+    )
+    _write_motif_scoreboard(tmp_path / "motif_cluster_scoreboard.pkl", {})
+
+    result = CliRunner().invoke(app, ["inspect", "cluster", "cluster_0008"])
+
+    assert result.exit_code == 0
+    assert "Description:     Custom description" in result.stdout
+    assert "Motif Hits:\nNone" in result.stdout
 
 
 def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:

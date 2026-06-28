@@ -10,6 +10,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+JEFFREYS_PRIOR = 0.5
+CALIBRATION_WEIGHT_THRESHOLDS = (2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
+
 
 @dataclass(frozen=True)
 class MotifClusterWeight:
@@ -48,6 +51,24 @@ class MotifScoreboardStats:
     stored_weights: int
     min_cluster_size: int
     min_support: int
+    calibration: tuple[MotifScoreboardCalibration, ...]
+
+
+@dataclass(frozen=True)
+class MotifScoreboardCalibration:
+    """Internal motif-inference calibration at one weight threshold."""
+
+    weight_threshold: float
+    eligible_accessions: int
+    covered_accessions: int
+    top1_correct_accessions: int
+    top3_correct_accessions: int
+    set_correct_accessions: int
+    coverage: float
+    top1_accuracy: float | None
+    top3_accuracy: float | None
+    set_accuracy: float | None
+    avg_predictions: float
 
 
 def build_motif_cluster_scoreboard(
@@ -121,8 +142,16 @@ def build_motif_cluster_scoreboard(
                 ignored_background_unavailable += 1
                 continue
             tn = outside_count - fp
-            cluster_frequency = tp / cluster_size
-            background_frequency = fp / outside_count
+            cluster_frequency = _smoothed_frequency(
+                tp,
+                cluster_size,
+                pseudocount=JEFFREYS_PRIOR,
+            )
+            background_frequency = _smoothed_frequency(
+                fp,
+                outside_count,
+                pseudocount=JEFFREYS_PRIOR,
+            )
             weight = _log2_enrichment(cluster_frequency, background_frequency)
             if weight <= 0.0:
                 ignored_non_positive_weight += 1
@@ -143,6 +172,13 @@ def build_motif_cluster_scoreboard(
             weights.setdefault(motif_id, {})[cluster_id] = asdict(record)
             stored_weights += 1
 
+    calibration = _calibrate_motif_predictions(
+        cluster_by_accession=cluster_by_accession,
+        cluster_sizes=cluster_sizes,
+        motif_accessions=motif_accessions,
+        weights=weights,
+        min_cluster_size=min_cluster_size,
+    )
     stats = MotifScoreboardStats(
         accessions_in_clusters=total_accessions,
         clusters=len(members_by_cluster),
@@ -161,6 +197,7 @@ def build_motif_cluster_scoreboard(
         stored_weights=stored_weights,
         min_cluster_size=min_cluster_size,
         min_support=min_support,
+        calibration=calibration,
     )
 
     artifact = {
@@ -169,7 +206,12 @@ def build_motif_cluster_scoreboard(
         "parameters": {
             "min_cluster_size": min_cluster_size,
             "min_support": min_support,
-            "weight": "log2((TP / (TP + FN)) / (FP / (FP + TN)))",
+            "pseudocount": JEFFREYS_PRIOR,
+            "smoothing": "Jeffreys prior",
+            "weight": (
+                "log2(((TP + 0.5) / (TP + FN + 1)) / "
+                "((FP + 0.5) / (FP + TN + 1)))"
+            ),
             "motif_presence": "binary",
         },
         "weights": weights,
@@ -264,6 +306,118 @@ def _load_motif_hits(
     return motif_accessions, motif_hit_rows, duplicate_hits, outside_hits
 
 
+def _calibrate_motif_predictions(
+    *,
+    cluster_by_accession: dict[str, str],
+    cluster_sizes: dict[str, int],
+    motif_accessions: dict[str, set[str]],
+    weights: dict[str, dict[str, dict[str, Any]]],
+    min_cluster_size: int,
+) -> tuple[MotifScoreboardCalibration, ...]:
+    eligible_accession_clusters = {
+        accession: cluster_id
+        for accession, cluster_id in cluster_by_accession.items()
+        if cluster_sizes[cluster_id] >= min_cluster_size
+    }
+    motif_hits_by_accession = _motif_hits_by_accession(motif_accessions)
+    calibration: list[MotifScoreboardCalibration] = []
+    for threshold in CALIBRATION_WEIGHT_THRESHOLDS:
+        motif_predictions = _motif_predictions_at_threshold(weights, threshold)
+        covered_accessions = 0
+        top1_correct_accessions = 0
+        top3_correct_accessions = 0
+        set_correct_accessions = 0
+        total_predictions = 0
+        for accession, true_cluster_id in eligible_accession_clusters.items():
+            prediction_scores: dict[str, float] = {}
+            for motif_id in motif_hits_by_accession.get(accession, ()):
+                for cluster_id, weight in motif_predictions.get(motif_id, {}).items():
+                    prediction_scores[cluster_id] = max(
+                        prediction_scores.get(cluster_id, -math.inf),
+                        weight,
+                    )
+            if not prediction_scores:
+                continue
+            covered_accessions += 1
+            total_predictions += len(prediction_scores)
+            ranked_predictions = sorted(
+                prediction_scores,
+                key=lambda cluster_id: (-prediction_scores[cluster_id], cluster_id),
+            )
+            if ranked_predictions[0] == true_cluster_id:
+                top1_correct_accessions += 1
+            if true_cluster_id in ranked_predictions[:3]:
+                top3_correct_accessions += 1
+            if true_cluster_id in prediction_scores:
+                set_correct_accessions += 1
+
+        eligible_accessions = len(eligible_accession_clusters)
+        coverage = (
+            covered_accessions / eligible_accessions
+            if eligible_accessions
+            else 0.0
+        )
+        top1_accuracy = (
+            top1_correct_accessions / covered_accessions
+            if covered_accessions
+            else None
+        )
+        top3_accuracy = (
+            top3_correct_accessions / covered_accessions
+            if covered_accessions
+            else None
+        )
+        set_accuracy = (
+            set_correct_accessions / covered_accessions
+            if covered_accessions
+            else None
+        )
+        avg_predictions = (
+            total_predictions / covered_accessions
+            if covered_accessions
+            else 0.0
+        )
+        calibration.append(
+            MotifScoreboardCalibration(
+                weight_threshold=threshold,
+                eligible_accessions=eligible_accessions,
+                covered_accessions=covered_accessions,
+                top1_correct_accessions=top1_correct_accessions,
+                top3_correct_accessions=top3_correct_accessions,
+                set_correct_accessions=set_correct_accessions,
+                coverage=coverage,
+                top1_accuracy=top1_accuracy,
+                top3_accuracy=top3_accuracy,
+                set_accuracy=set_accuracy,
+                avg_predictions=avg_predictions,
+            )
+        )
+    return tuple(calibration)
+
+
+def _motif_hits_by_accession(
+    motif_accessions: dict[str, set[str]],
+) -> dict[str, set[str]]:
+    hits_by_accession: dict[str, set[str]] = {}
+    for motif_id, accessions in motif_accessions.items():
+        for accession in accessions:
+            hits_by_accession.setdefault(accession, set()).add(motif_id)
+    return hits_by_accession
+
+
+def _motif_predictions_at_threshold(
+    weights: dict[str, dict[str, dict[str, Any]]],
+    threshold: float,
+) -> dict[str, dict[str, float]]:
+    predictions: dict[str, dict[str, float]] = {}
+    for motif_id, cluster_weights in weights.items():
+        for cluster_id, record in cluster_weights.items():
+            weight = float(record.get("weight", 0.0))
+            if weight >= threshold:
+                predictions.setdefault(motif_id, {})[cluster_id] = weight
+    return predictions
+
+
 def _hit_count(row: dict[str, Any]) -> int:
     raw_present = row.get("motif_present")
     if raw_present is not None and str(raw_present).strip() != "":
@@ -284,6 +438,15 @@ def _parse_bool(value: str) -> bool:
     if normalized in {"false", "0", "no", "n"}:
         return False
     raise ValueError(f"Invalid motif_present value: {value}")
+
+
+def _smoothed_frequency(
+    successes: int,
+    total: int,
+    *,
+    pseudocount: float,
+) -> float:
+    return (successes + pseudocount) / (total + 2 * pseudocount)
 
 
 def _log2_enrichment(

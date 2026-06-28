@@ -1,3 +1,6 @@
+import json
+import pickle
+
 from typer.testing import CliRunner
 
 from prosig.cli.app import app
@@ -18,7 +21,83 @@ def test_short_help_option() -> None:
     assert "Usage:" in result.stdout
     assert "version" in result.stdout
     assert "build-library" in result.stdout
+    assert "scan" in result.stdout
     assert "inspect" in result.stdout
+
+
+def test_scan_sequence_reports_inferred_go_sets(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_scan_artifacts(tmp_path)
+
+    result = CliRunner().invoke(app, ["scan", "--seq", "XXAAXX"])
+
+    assert result.exit_code == 0
+    assert "Query:          sequence" in result.stdout
+    assert "Matched motifs: 1" in result.stdout
+    assert "Inferred GO sets (weight >= 5):" in result.stdout
+    assert "1. GO:0004672;GO:0005524" in result.stdout
+    assert "Clusters:       cluster_0001" in result.stdout
+    assert "Description:" in result.stdout
+    assert "ATP-binding protein kinase" in result.stdout
+    assert "GO terms:       GO:0004672;GO:0005524" in result.stdout
+    assert "Weight:         5.5" in result.stdout
+    assert "Confidence:     0.91 (set_acc @ >= 5)" in result.stdout
+
+
+def test_scan_writes_json_output(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_scan_artifacts(tmp_path)
+    json_out = tmp_path / "scan.json"
+
+    result = CliRunner().invoke(
+        app,
+        ["scan", "--seq", "XXAAXX", "--json-out", str(json_out)],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    payload = json.loads(json_out.read_text(encoding="utf-8"))
+    prediction = payload["queries"][0]["inferred_go_sets"][0]
+    assert prediction["go_terms"] == ["GO:0004672", "GO:0005524"]
+    assert prediction["weight"] == 5.5
+    assert prediction["calibrated_confidence"]["set_accuracy"] == 0.91
+
+
+def test_scan_reads_fasta_queries(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_scan_artifacts(tmp_path)
+    query_fasta = tmp_path / "queries.fasta"
+    query_fasta.write_text(">query_1\nXXBBXX\n", encoding="ascii")
+
+    result = CliRunner().invoke(app, ["scan", "--fasta", str(query_fasta)])
+
+    assert result.exit_code == 0
+    assert "Query:          query_1" in result.stdout
+    assert "Matched motifs: 1" in result.stdout
+    assert "Weight:         6" in result.stdout
+
+
+def test_scan_resolves_accession_from_indexed_fasta(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_scan_artifacts(tmp_path)
+    _write_indexed_fasta(
+        tmp_path / "accession.fasta",
+        tmp_path / "accession.fasta.idx",
+        {"P00001": "XXAAXX"},
+    )
+
+    result = CliRunner().invoke(app, ["scan", "--accession", "P00001"])
+
+    assert result.exit_code == 0
+    assert "Query:          P00001" in result.stdout
+    assert "1. GO:0004672;GO:0005524" in result.stdout
+
+
+def test_scan_requires_exactly_one_query_input() -> None:
+    result = CliRunner().invoke(app, ["scan"])
+
+    assert result.exit_code != 0
+    assert "provide exactly one of --seq, --fasta, --accession" in result.output
 
 
 def test_build_library_help_includes_options() -> None:
@@ -71,3 +150,81 @@ def test_build_library_rejects_invalid_min_cluster_similarity() -> None:
 
     assert result.exit_code != 0
     assert "--min-cluster-similarity" in result.output
+
+
+def _write_scan_artifacts(tmp_path) -> None:
+    (tmp_path / "prosig_motifs.tsv").write_text(
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "MOTIF_A\tAA motif\tAA\tprosig\n"
+        "MOTIF_B\tBB motif\tBB\tprosig\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\t"
+        "composed_description\n"
+        "cluster_0001\tNA\tNA\tNA\t10\tGO:0004672;GO:0005524\t"
+        "ATP-binding protein kinase\n",
+        encoding="utf-8",
+    )
+    scoreboard = {
+        "schema_version": "1.0",
+        "kind": "motif_cluster_scoreboard",
+        "parameters": {},
+        "weights": {
+            "MOTIF_A": {
+                "cluster_0001": {
+                    "motif_id": "MOTIF_A",
+                    "cluster_id": "cluster_0001",
+                    "weight": 5.5,
+                }
+            },
+            "MOTIF_B": {
+                "cluster_0001": {
+                    "motif_id": "MOTIF_B",
+                    "cluster_id": "cluster_0001",
+                    "weight": 6.0,
+                }
+            },
+        },
+    }
+    with (tmp_path / "motif_cluster_scoreboard.pkl").open("wb") as handle:
+        pickle.dump(scoreboard, handle)
+    (tmp_path / "motif_cluster_scoreboard_meta.json").write_text(
+        json.dumps(
+            {
+                "stats": {
+                    "calibration": [
+                        {
+                            "weight_threshold": 5.0,
+                            "set_accuracy": 0.91,
+                            "top1_accuracy": 0.8,
+                            "top3_accuracy": 0.9,
+                            "coverage": 0.4,
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_indexed_fasta(fasta_file, index_file, sequences: dict[str, str]) -> None:
+    with fasta_file.open("wb") as fasta_handle:
+        locations: dict[str, tuple[int, int]] = {}
+        for accession, sequence in sequences.items():
+            fasta_handle.write(f">{accession}\n".encode("ascii"))
+            offset = fasta_handle.tell()
+            fasta_handle.write(sequence.encode("ascii"))
+            fasta_handle.write(b"\n")
+            locations[accession] = (offset, len(sequence))
+    fasta_stat = fasta_file.stat()
+    with index_file.open("w", encoding="ascii") as index_handle:
+        index_handle.write("# Generated by test\n")
+        index_handle.write("# version\t1\n")
+        index_handle.write(f"# fasta_name\t{fasta_file.name}\n")
+        index_handle.write(f"# fasta_size\t{fasta_stat.st_size}\n")
+        index_handle.write(f"# fasta_mtime_ns\t{fasta_stat.st_mtime_ns}\n")
+        index_handle.write("accession\toffset\tlength\n")
+        for accession, (offset, length) in locations.items():
+            index_handle.write(f"{accession}\t{offset}\t{length}\n")
