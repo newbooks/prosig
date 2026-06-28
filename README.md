@@ -10,6 +10,8 @@ routine analysis workflows:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable Leiden
   function clusters, and customizable motif library.
+- `prosig scan`: scan a sequence, FASTA file, or accession against the motif
+  library and infer motif-supported GO sets from the score board.
 - `prosig inspect`: inspect ProSig artifacts and diagnostic calculations,
   including GO terms and Lin similarity scores.
 - `prosig discover`: discover discriminative motifs from grouped function
@@ -23,6 +25,11 @@ rather than a separate top-level command, because function clusters are a
 prerequisite for the motif library. Function prediction is treated as part of
 annotation, because predictions should be reported together with the motif scan
 hits that justify them.
+
+`prosig scan` accepts `--seq`, `--fasta`, or `--accession`. It reports inferred
+GO sets with raw motif-cluster weight and, when score board calibration metadata
+is available, the observed set accuracy at the nearest lower calibration weight
+threshold as a calibrated confidence reference.
 
 GO evidence-code filtering in `build-library` is intended to be used with the
 reviewed Swiss-Prot accession file `uniprot_sprot.dat.gz`. The excluded GO

@@ -59,6 +59,8 @@ Start with these top-level subcommands:
 - `prosig setup-data`: download and cache external data for offline use.
 - `prosig build-library`: build the minimized GO graph, adjustable function
   clusters, and motif library.
+- `prosig scan`: scan one sequence, a FASTA file, or an indexed accession and
+  infer motif-supported GO sets.
 - `prosig inspect`: inspect GO terms, accessions, motifs, similarity scores,
   and other diagnostic artifacts.
 - `prosig discover`: discover sequence signatures from positive and background or negative sequence sets.
@@ -73,6 +75,31 @@ Start with these top-level subcommands:
 - Use explicit names for input and output options.
 - Prefer file paths and formats that can be used in reproducible scripts.
 - Return non-zero exit codes for invalid inputs or failed workflows.
+
+## `scan`
+
+`scan` performs motif-based function inference from existing build-library
+artifacts. Exactly one query source is required:
+
+```text
+prosig scan --seq MSEQUENCE
+prosig scan --fasta queries.fasta
+prosig scan --accession P12345
+```
+
+For each query, the command scans `prosig_motifs.tsv`, looks up matching motifs
+in `motif_cluster_scoreboard.pkl`, and reports inferred GO sets with
+motif-cluster weight at or above `--min-weight` (`5.0` by default). Cluster
+metadata from `clusters_meta.tsv` provides composed GO terms and descriptions.
+
+When `motif_cluster_scoreboard_meta.json` contains calibration records, `scan`
+also reports a calibrated confidence reference: the observed `set_accuracy` at
+the highest calibration threshold less than or equal to the prediction weight.
+This is not a per-cluster probability; it is an empirical calibration summary
+for predictions at that weight scale.
+
+Use `--json-out PATH` to write the same report as JSON instead of printing the
+human-readable report.
 - Keep output formats stable once documented.
 
 ## `inspect` Command Group
