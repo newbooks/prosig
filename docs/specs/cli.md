@@ -89,8 +89,11 @@ prosig scan --accession P12345
 
 For each query, the command scans `prosig_motifs.tsv`, looks up matching motifs
 in `motif_cluster_scoreboard.pkl`, and reports inferred GO sets with
-motif-cluster weight at or above `--min-weight` (`5.0` by default). Cluster
+motif-cluster weight at or above `--min-weight` (`2.0` by default). The default
+screen and JSON report includes the top 5 inferred GO sets; use `--top-n N` to
+change the limit, or `--top-n 0` to report all inferred GO sets. Cluster
 metadata from `clusters_meta.tsv` provides composed GO terms and descriptions.
+Each prediction includes the strongest contributing motif signature.
 
 When `motif_cluster_scoreboard_meta.json` contains calibration records, `scan`
 also reports a calibrated confidence reference: the observed `set_accuracy` at
@@ -192,7 +195,7 @@ logs are emitted as accession chunks complete. The score board step skips
 clusters smaller than 10 by default, skips motif-cluster pairs with `TP < 5`,
 stores only positive weights in the pickle artifact, and logs/internal-metadata
 reports calibration top-1, top-3, set accuracy, average prediction count, and
-coverage at weight thresholds 2.0 through 8.0.
+coverage at weight thresholds 2.0 through 8.0 in 0.5 increments.
 
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when

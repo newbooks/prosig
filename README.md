@@ -27,9 +27,12 @@ annotation, because predictions should be reported together with the motif scan
 hits that justify them.
 
 `prosig scan` accepts `--seq`, `--fasta`, or `--accession`. It reports inferred
-GO sets with raw motif-cluster weight and, when score board calibration metadata
-is available, the observed set accuracy at the nearest lower calibration weight
-threshold as a calibrated confidence reference.
+GO sets with raw motif-cluster weight, defaulting to the top 5 predictions with
+weight at least 2.0, and shows the strongest contributing motif signature for
+each prediction. Use `--top-n 0` to show all predictions. When score board
+calibration metadata is available, the observed set accuracy at the nearest
+lower calibration weight threshold is shown as a calibrated confidence
+reference.
 
 GO evidence-code filtering in `build-library` is intended to be used with the
 reviewed Swiss-Prot accession file `uniprot_sprot.dat.gz`. The excluded GO
@@ -70,8 +73,8 @@ motif-cluster weights. Weights are log2 enrichment scores computed with a
 Jeffreys prior pseudocount of 0.5, so zero-background hits remain finite and
 support-sensitive. Metadata is written alongside the pickle with counts for
 ignored combinations, stored weights, and internal calibration at motif-weight
-thresholds 2.0 through 8.0, including top-1, top-3, set accuracy, average
-prediction count, and coverage.
+thresholds 2.0 through 8.0 in 0.5 increments, including top-1, top-3, set
+accuracy, average prediction count, and coverage.
 
 ## Diagnostic Inspection
 

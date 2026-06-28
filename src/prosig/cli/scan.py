@@ -100,13 +100,22 @@ def scan(
             "--min-weight",
             help="Minimum motif-cluster weight retained as an inferred GO set.",
         ),
-    ] = 5.0,
+    ] = 2.0,
+    top_n: Annotated[
+        int,
+        typer.Option(
+            "--top-n",
+            help="Maximum inferred GO sets to report; use 0 to report all.",
+        ),
+    ] = 5,
     json_out: Annotated[
         Path | None,
         typer.Option("--json-out", help="Optional path to write JSON output."),
     ] = None,
 ) -> None:
     """Scan query sequence(s), infer motif-supported GO sets, and print results."""
+    if top_n < 0:
+        raise typer.BadParameter("must be at least 0", param_hint="--top-n")
     queries = _resolve_queries(
         seq=seq,
         fasta=fasta,
@@ -115,6 +124,7 @@ def scan(
         fasta_index=fasta_index,
     )
     motifs = read_prosig_motif_library(motif_library)
+    motifs_by_name = {motif.name: motif for motif in motifs}
     scoreboard = _load_scoreboard(motif_scoreboard)
     clusters = _load_cluster_meta(cluster_meta)
     calibration = _load_calibration(motif_scoreboard_meta)
@@ -124,15 +134,17 @@ def scan(
         _scan_one_query(
             query,
             motifs=motifs,
+            motifs_by_name=motifs_by_name,
             scoreboard=scoreboard,
             clusters=clusters,
             calibration=calibration,
             similarity=similarity,
             min_weight=min_weight,
+            top_n=top_n,
         )
         for query in queries
     ]
-    payload = {"queries": reports, "min_weight": min_weight}
+    payload = {"queries": reports, "min_weight": min_weight, "top_n": top_n}
 
     if json_out is not None:
         json_out.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +154,7 @@ def scan(
         )
         return
 
-    typer.echo(_format_scan_reports(reports, min_weight=min_weight))
+    typer.echo(_format_scan_reports(reports, min_weight=min_weight, top_n=top_n))
 
 
 def _resolve_queries(
@@ -281,11 +293,13 @@ def _scan_one_query(
     query: _QuerySequence,
     *,
     motifs,
+    motifs_by_name,
     scoreboard: dict[str, dict[str, dict[str, Any]]],
     clusters: dict[str, _ClusterMeta],
     calibration: list[dict[str, Any]],
     similarity: GoSimilarity | None,
     min_weight: float,
+    top_n: int,
 ) -> dict[str, Any]:
     hit_motifs = [
         motif.name
@@ -304,6 +318,7 @@ def _scan_one_query(
                     "cluster_id": cluster_id,
                     "weight": weight,
                     "motif_id": motif_id,
+                    "signature": motifs_by_name[motif_id].pattern,
                 }
 
     go_set_predictions = _cluster_predictions_to_go_sets(
@@ -313,6 +328,8 @@ def _scan_one_query(
         calibration=calibration,
         similarity=similarity,
     )
+    if top_n > 0:
+        go_set_predictions = go_set_predictions[:top_n]
     return {
         "query": query.query,
         "sequence_length": len(query.sequence),
@@ -342,6 +359,8 @@ def _cluster_predictions_to_go_sets(
                 "go_terms": list(go_terms),
                 "composed_description": description,
                 "weight": prediction["weight"],
+                "motif_id": prediction["motif_id"],
+                "signature": prediction["signature"],
                 "calibrated_confidence": _calibrated_confidence(
                     prediction["weight"],
                     calibration,
@@ -352,6 +371,8 @@ def _cluster_predictions_to_go_sets(
         if prediction["weight"] > current["weight"]:
             current["weight"] = prediction["weight"]
             current["composed_description"] = description
+            current["motif_id"] = prediction["motif_id"]
+            current["signature"] = prediction["signature"]
             current["calibrated_confidence"] = _calibrated_confidence(
                 prediction["weight"],
                 calibration,
@@ -405,20 +426,31 @@ def _calibrated_confidence(
     }
 
 
-def _format_scan_reports(reports: list[dict[str, Any]], *, min_weight: float) -> str:
+def _format_scan_reports(
+    reports: list[dict[str, Any]],
+    *,
+    min_weight: float,
+    top_n: int,
+) -> str:
     blocks = [
-        _format_one_scan_report(report, min_weight=min_weight)
+        _format_one_scan_report(report, min_weight=min_weight, top_n=top_n)
         for report in reports
     ]
     return "\n\n".join(blocks)
 
 
-def _format_one_scan_report(report: dict[str, Any], *, min_weight: float) -> str:
+def _format_one_scan_report(
+    report: dict[str, Any],
+    *,
+    min_weight: float,
+    top_n: int,
+) -> str:
+    limit_text = "all" if top_n == 0 else f"top {top_n}"
     lines = [
         f"Query:          {report['query']}",
         f"Sequence size:  {report['sequence_length']} aa",
         f"Matched motifs: {len(report['matched_motifs'])}",
-        f"Inferred GO sets (weight >= {min_weight:g}):",
+        f"Inferred GO sets ({limit_text}, weight >= {min_weight:g}):",
     ]
     predictions = report["inferred_go_sets"]
     if not predictions:
@@ -444,6 +476,7 @@ def _format_prediction(index: int, prediction: dict[str, Any]) -> list[str]:
     return [
         "",
         f"{index}. {';'.join(prediction['go_terms']) or 'NA'}",
+        f"Signature:     {prediction['signature']}",
         f"Clusters:       {','.join(prediction['cluster_ids'])}",
         *description_lines,
         f"GO terms:       {';'.join(prediction['go_terms']) or 'NA'}",
