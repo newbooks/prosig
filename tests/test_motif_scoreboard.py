@@ -143,7 +143,21 @@ def test_build_motif_cluster_scoreboard_reports_calibration(
         point.weight_threshold: point
         for point in stats.calibration
     }
-    assert set(calibration_by_threshold) == {2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0}
+    assert set(calibration_by_threshold) == {
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+    }
     assert calibration_by_threshold[2.0].eligible_accessions == 20
     assert calibration_by_threshold[2.0].covered_accessions == 5
     assert calibration_by_threshold[2.0].top1_correct_accessions == 5

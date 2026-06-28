@@ -34,14 +34,17 @@ def test_scan_sequence_reports_inferred_go_sets(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert "Query:          sequence" in result.stdout
     assert "Matched motifs: 1" in result.stdout
-    assert "Inferred GO sets (weight >= 5):" in result.stdout
+    assert "Inferred GO sets (top 5, weight >= 2):" in result.stdout
     assert "1. GO:0004672;GO:0005524" in result.stdout
+    assert "Signature:     AA" in result.stdout
     assert "Clusters:       cluster_0001" in result.stdout
     assert "Description:" in result.stdout
     assert "ATP-binding protein kinase" in result.stdout
     assert "GO terms:       GO:0004672;GO:0005524" in result.stdout
-    assert "Weight:         5.5" in result.stdout
+    assert "Weight:         6.5" in result.stdout
     assert "Confidence:     0.91 (set_acc @ >= 5)" in result.stdout
+    assert "5. GO:000005" in result.stdout
+    assert "6. GO:000006" not in result.stdout
 
 
 def test_scan_writes_json_output(tmp_path, monkeypatch) -> None:
@@ -59,8 +62,22 @@ def test_scan_writes_json_output(tmp_path, monkeypatch) -> None:
     payload = json.loads(json_out.read_text(encoding="utf-8"))
     prediction = payload["queries"][0]["inferred_go_sets"][0]
     assert prediction["go_terms"] == ["GO:0004672", "GO:0005524"]
-    assert prediction["weight"] == 5.5
+    assert prediction["signature"] == "AA"
+    assert prediction["motif_id"] == "MOTIF_A"
+    assert prediction["weight"] == 6.5
     assert prediction["calibrated_confidence"]["set_accuracy"] == 0.91
+    assert payload["top_n"] == 5
+
+
+def test_scan_top_n_zero_reports_all_inferences(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_scan_artifacts(tmp_path)
+
+    result = CliRunner().invoke(app, ["scan", "--seq", "XXAAXX", "--top-n", "0"])
+
+    assert result.exit_code == 0
+    assert "Inferred GO sets (all, weight >= 2):" in result.stdout
+    assert "6. GO:000006" in result.stdout
 
 
 def test_scan_reads_fasta_queries(tmp_path, monkeypatch) -> None:
@@ -159,11 +176,18 @@ def _write_scan_artifacts(tmp_path) -> None:
         "MOTIF_B\tBB motif\tBB\tprosig\n",
         encoding="utf-8",
     )
-    (tmp_path / "clusters_meta.tsv").write_text(
+    cluster_rows = [
         "cluster_id\tsim_ave\tsim_min\tsim_max\tsize\tcomposed_go\t"
-        "composed_description\n"
+        "composed_description\n",
         "cluster_0001\tNA\tNA\tNA\t10\tGO:0004672;GO:0005524\t"
         "ATP-binding protein kinase\n",
+    ]
+    cluster_rows.extend(
+        f"cluster_000{i}\tNA\tNA\tNA\t10\tGO:00000{i}\tFunction {i}\n"
+        for i in range(2, 7)
+    )
+    (tmp_path / "clusters_meta.tsv").write_text(
+        "".join(cluster_rows),
         encoding="utf-8",
     )
     scoreboard = {
@@ -172,11 +196,12 @@ def _write_scan_artifacts(tmp_path) -> None:
         "parameters": {},
         "weights": {
             "MOTIF_A": {
-                "cluster_0001": {
+                f"cluster_000{i}": {
                     "motif_id": "MOTIF_A",
-                    "cluster_id": "cluster_0001",
-                    "weight": 5.5,
+                    "cluster_id": f"cluster_000{i}",
+                    "weight": 6.6 - i / 10,
                 }
+                for i in range(1, 7)
             },
             "MOTIF_B": {
                 "cluster_0001": {

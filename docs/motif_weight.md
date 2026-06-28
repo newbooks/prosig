@@ -263,7 +263,7 @@ Metadata includes counts for:
 * combinations ignored because weight is zero or negative;
 * total non-zero positive weights stored;
 * internal calibration top-1, top-3, set accuracy, average prediction count, and
-  coverage at motif-weight thresholds 2.0 through 8.0.
+  coverage at motif-weight thresholds 2.0 through 8.0 in 0.5 increments.
 
 ---
 
