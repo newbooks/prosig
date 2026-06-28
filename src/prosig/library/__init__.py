@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from contextlib import ExitStack
+from dataclasses import dataclass, field
 from importlib.resources import as_file, files
 from pathlib import Path
+from types import TracebackType
 
 CORE_LIBRARY_FILES = (
     "prosig_motifs.tsv",
@@ -24,9 +26,33 @@ class ResolvedLibrary:
     source: str
     directory: Path
     files: dict[str, Path]
+    _resource_stack: ExitStack | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def path(self, filename: str) -> Path:
         return self.files[filename]
+
+    def close(self) -> None:
+        """Release any temporary importlib resource extraction."""
+        if self._resource_stack is not None:
+            self._resource_stack.close()
+
+    def __enter__(self) -> ResolvedLibrary:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        self.close()
 
 
 def package_default_library_dir() -> Path:
@@ -86,5 +112,16 @@ def _resolve_directory(directory: Path, *, source: str) -> ResolvedLibrary:
 
 def _resolve_packaged_default() -> ResolvedLibrary:
     resource = files("prosig.library.default")
-    with as_file(resource) as package_dir:
-        return _resolve_directory(package_dir, source="packaged-default")
+    stack = ExitStack()
+    try:
+        package_dir = stack.enter_context(as_file(resource))
+        resolved = _resolve_directory(package_dir, source="packaged-default")
+        return ResolvedLibrary(
+            source=resolved.source,
+            directory=resolved.directory,
+            files=resolved.files,
+            _resource_stack=stack,
+        )
+    except Exception:
+        stack.close()
+        raise
