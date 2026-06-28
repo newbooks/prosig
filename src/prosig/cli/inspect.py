@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+import pickle
 import re
+import textwrap
 from collections import deque
 from dataclasses import asdict
 from pathlib import Path
@@ -304,6 +306,88 @@ def function(
     typer.echo(f"Function: {result.summary}")
 
 
+@inspect_app.command(name="cluster")
+def cluster(
+    cluster_id: Annotated[
+        str,
+        typer.Argument(help="Function cluster ID, e.g. cluster_0008."),
+    ],
+    go_graph: Annotated[
+        Path,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Path to the compact GO graph pickle. Used to derive composed "
+                "description when clusters_meta.tsv does not provide one."
+            ),
+        ),
+    ] = Path("go_graph.pkl"),
+    cluster_meta: Annotated[
+        Path,
+        typer.Option(
+            "--cluster-meta",
+            help="Path to clusters_meta.tsv from build-library.",
+        ),
+    ] = Path("clusters_meta.tsv"),
+    motif_scoreboard: Annotated[
+        Path,
+        typer.Option(
+            "--motif-scoreboard",
+            help="Path to motif_cluster_scoreboard.pkl from build-library.",
+        ),
+    ] = Path("motif_cluster_scoreboard.pkl"),
+    motif_library: Annotated[
+        Path,
+        typer.Option(
+            "--motif-library",
+            help="Path to prosig_motifs.tsv from build-library.",
+        ),
+    ] = Path("prosig_motifs.tsv"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write cluster inspection report as JSON."),
+    ] = False,
+) -> None:
+    """Inspect one function cluster and its positive motif-cluster weights."""
+    if not _is_cluster_id_input(cluster_id):
+        raise typer.BadParameter("cluster ID must look like cluster_0008")
+    try:
+        cluster_record = _load_cluster_record(cluster_meta, cluster_id)
+        motif_descriptions = _load_motif_descriptions(motif_library)
+        motif_records = _load_cluster_motif_records(motif_scoreboard, cluster_id)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(f"required file not found: {exc.filename}") from exc
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    composed_description = cluster_record.get("composed_description", "").strip()
+    composed_go = _parse_cluster_composed_go(cluster_record.get("composed_go", ""))
+    if not composed_description:
+        composed_description = _describe_cluster_go_terms(
+            cluster_id,
+            composed_go,
+            go_graph,
+        )
+
+    motifs = [
+        _format_cluster_motif_record(record, motif_descriptions)
+        for record in motif_records
+    ]
+    payload = {
+        "cluster_id": cluster_id,
+        "cluster_size": _parse_cluster_size(cluster_record),
+        "composed_go": list(composed_go),
+        "composed_description": composed_description,
+        "motifs": motifs,
+    }
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(_format_cluster_report(payload))
+
+
 def _resolve_go_set_queries(
     set1: str,
     set2: str,
@@ -343,6 +427,250 @@ def _resolve_go_set_query(query: str, accession_go: Path) -> tuple[str, ...]:
         return resolve_go_set_query(query, accession_terms)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def _load_cluster_record(cluster_meta: Path, cluster_id: str) -> dict[str, str]:
+    with cluster_meta.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        fieldnames = set(reader.fieldnames or ())
+        required = {"cluster_id", "size", "composed_go"}
+        if not required.issubset(fieldnames):
+            missing = ", ".join(sorted(required - fieldnames))
+            raise ValueError(
+                f"{cluster_meta} missing required column(s): {missing}"
+            )
+        for row in reader:
+            if str(row.get("cluster_id", "")).strip() != cluster_id:
+                continue
+            return {key: value or "" for key, value in row.items()}
+    raise ValueError(f"cluster ID not found in {cluster_meta}: {cluster_id}")
+
+
+def _parse_cluster_size(cluster_record: dict[str, str]) -> int:
+    raw_size = cluster_record.get("size", "").strip()
+    try:
+        return int(raw_size)
+    except ValueError as exc:
+        raise ValueError(f"Invalid cluster size: {raw_size}") from exc
+
+
+def _describe_cluster_go_terms(
+    cluster_id: str,
+    composed_go: tuple[str, ...],
+    go_graph: Path,
+) -> str:
+    if not composed_go:
+        return "NA"
+    try:
+        similarity = _load_go_similarity(go_graph)
+    except typer.BadParameter:
+        return "NA"
+    result = describe_go_function(cluster_id, composed_go, similarity.terms)
+    return result.summary
+
+
+def _load_motif_descriptions(motif_library: Path) -> dict[str, str]:
+    descriptions: dict[str, str] = {}
+    with motif_library.open("r", encoding="utf-8", newline="") as handle:
+        data_lines = [
+            line for line in handle
+            if not line.startswith("#")
+        ]
+    if not data_lines:
+        raise ValueError(f"{motif_library} does not contain a motif TSV header")
+    reader = csv.DictReader(data_lines, delimiter="\t")
+    fieldnames = set(reader.fieldnames or ())
+    required = {"name", "description"}
+    if not required.issubset(fieldnames):
+        missing = ", ".join(sorted(required - fieldnames))
+        raise ValueError(f"{motif_library} missing required column(s): {missing}")
+    for row in reader:
+        motif_id = str(row.get("name", "")).strip()
+        if motif_id:
+            descriptions[motif_id] = str(row.get("description", "")).strip()
+    return descriptions
+
+
+def _load_cluster_motif_records(
+    motif_scoreboard: Path,
+    cluster_id: str,
+) -> list[dict[str, Any]]:
+    with motif_scoreboard.open("rb") as handle:
+        artifact = pickle.load(handle)
+    if not isinstance(artifact, dict):
+        raise ValueError(
+            f"Motif scoreboard must contain a dictionary: {motif_scoreboard}"
+        )
+    weights = artifact.get("weights")
+    if not isinstance(weights, dict):
+        raise ValueError(f"Motif scoreboard missing weights: {motif_scoreboard}")
+
+    records: list[dict[str, Any]] = []
+    for motif_id, cluster_weights in weights.items():
+        if not isinstance(cluster_weights, dict):
+            continue
+        raw_record = cluster_weights.get(cluster_id)
+        if not isinstance(raw_record, dict):
+            continue
+        record = dict(raw_record)
+        record.setdefault("motif_id", motif_id)
+        record.setdefault("cluster_id", cluster_id)
+        records.append(record)
+    records.sort(
+        key=lambda record: (
+            -_as_float(record.get("weight")),
+            str(record.get("motif_id", "")),
+        )
+    )
+    return records
+
+
+def _format_cluster_motif_record(
+    record: dict[str, Any],
+    motif_descriptions: dict[str, str],
+) -> dict[str, Any]:
+    motif_id = str(record.get("motif_id", "")).strip()
+    tp = _as_int(record.get("TP"))
+    fp = _as_int(record.get("FP"))
+    fn = _as_int(record.get("FN"))
+    tn = _as_int(record.get("TN"))
+    weight = _as_float(record.get("weight"))
+    return {
+        "motif_id": motif_id,
+        "description": motif_descriptions.get(motif_id, ""),
+        "TP": tp,
+        "FP": fp,
+        "FN": fn,
+        "TN": tn,
+        "odds_ratio": _format_odds_ratio(tp, fp, fn, tn),
+        "weight": _format_float(weight),
+    }
+
+
+def _format_cluster_report(payload: dict[str, Any]) -> str:
+    cluster_id = str(payload["cluster_id"])
+    cluster_size = int(payload["cluster_size"])
+    lines = [
+        *_format_wrapped_label("Cluster ID:", cluster_id),
+        *_format_wrapped_label("Cluster Size:", str(cluster_size)),
+        *_format_wrapped_label("Composed GO:", ";".join(payload["composed_go"])),
+        *_format_wrapped_label("Description:", payload["composed_description"]),
+        "",
+        "Motif Hits:",
+    ]
+    motifs = payload["motifs"]
+    if not motifs:
+        lines.append("None")
+        return "\n".join(lines)
+
+    for index, motif in enumerate(motifs, start=1):
+        lines.extend(
+            _format_cluster_motif_section(
+                index,
+                motif,
+                cluster_id=cluster_id,
+                cluster_size=cluster_size,
+            )
+        )
+    return "\n".join(lines)
+
+
+def _format_wrapped_label(
+    label: str,
+    value: Any,
+    *,
+    label_width: int = 17,
+    width: int = 79,
+) -> list[str]:
+    text = str(value) if value else "NA"
+    wrapped = textwrap.wrap(
+        text,
+        width=max(20, width - label_width),
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or ["NA"]
+    lines = [f"{label:<{label_width}}{wrapped[0]}"]
+    lines.extend(f"{'':<{label_width}}{line}" for line in wrapped[1:])
+    return lines
+
+
+def _format_cluster_motif_section(
+    index: int,
+    motif: dict[str, Any],
+    *,
+    cluster_id: str,
+    cluster_size: int,
+) -> list[str]:
+    inside_label = f"In {cluster_id}"
+    outside_label = f"Outside {cluster_id}"
+    row_label_width = 15
+    count_width = max(len(inside_label), len(outside_label), 12) + 2
+    separator = "-" * (row_label_width + count_width * 2)
+    lines = [
+        "",
+        f"{index}. {motif['motif_id']}",
+    ]
+    if motif["description"]:
+        lines.append(str(motif["description"]))
+    lines.extend(
+        [
+            (
+                f"{'':<{row_label_width}}"
+                f"{inside_label:>{count_width}}"
+                f"{outside_label:>{count_width}}"
+            ),
+            separator,
+            (
+                f"{'Motif present':<{row_label_width}}"
+                f"{motif['TP']:>{count_width}}"
+                f"{motif['FP']:>{count_width}}"
+            ),
+            (
+                f"{'Motif absent':<{row_label_width}}"
+                f"{motif['FN']:>{count_width}}"
+                f"{motif['TN']:>{count_width}}"
+            ),
+            separator,
+            f"Odds ratio:  {motif['odds_ratio']}",
+            f"Weight:      {motif['weight']}",
+        ]
+    )
+    if motif["TP"] + motif["FN"] != cluster_size:
+        lines.append(
+            "Note: TP + FN does not equal the reported cluster size; "
+            "the scoreboard may be stale relative to clusters_meta.tsv."
+        )
+    return lines
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid integer in motif scoreboard: {value}") from exc
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid float in motif scoreboard: {value}") from exc
+
+
+def _format_odds_ratio(tp: int, fp: int, fn: int, tn: int) -> str:
+    numerator = tp * tn
+    denominator = fp * fn
+    if denominator == 0:
+        return "inf" if numerator > 0 else "NA"
+    return _format_float(numerator / denominator)
+
+
+def _format_float(value: float) -> str:
+    if value == float("inf"):
+        return "inf"
+    if value == float("-inf"):
+        return "-inf"
+    return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
 def _resolve_function_query(

@@ -59,8 +59,12 @@ The scan uses 8 worker processes by default; override with
 `--motif-scan-processes`. It then builds a pickled motif-cluster prediction
 score board. The score board ignores clusters with fewer than 10 members,
 ignores motif-cluster pairs with support below 5, and stores only positive
-motif-cluster weights. Metadata is written alongside the pickle with counts for
-ignored combinations and stored weights.
+motif-cluster weights. Weights are log2 enrichment scores computed with a
+Jeffreys prior pseudocount of 0.5, so zero-background hits remain finite and
+support-sensitive. Metadata is written alongside the pickle with counts for
+ignored combinations, stored weights, and internal calibration at motif-weight
+thresholds 2.0 through 8.0, including top-1, top-3, set accuracy, average
+prediction count, and coverage.
 
 ## Diagnostic Inspection
 

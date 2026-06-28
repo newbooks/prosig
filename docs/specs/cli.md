@@ -163,7 +163,9 @@ column is compiled and scanned. Motif scanning uses 8 worker processes by
 default, controlled by `--motif-scan-processes`, and parent-process progress
 logs are emitted as accession chunks complete. The score board step skips
 clusters smaller than 10 by default, skips motif-cluster pairs with `TP < 5`,
-and stores only positive weights in the pickle artifact.
+stores only positive weights in the pickle artifact, and logs/internal-metadata
+reports calibration top-1, top-3, set accuracy, average prediction count, and
+coverage at weight thresholds 2.0 through 8.0.
 
 Clustering graph, Leiden, matrix, cache, and candidate-filter parameters live
 in `cluster_config.yaml`, created from a packaged starter template when

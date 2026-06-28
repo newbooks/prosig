@@ -569,6 +569,34 @@ def _refresh_motif_scoreboard(
         format_log_number(stats.ignored_low_support),
         format_log_number(stats.ignored_non_positive_weight),
     )
+    logger.info(
+        "Motif scoreboard calibration: threshold  top1_acc  top3_acc  "
+        "set_acc  avg_predictions  coverage  covered/eligible"
+    )
+    for point in stats.calibration:
+        top1_accuracy = _format_optional_fraction(point.top1_accuracy)
+        top3_accuracy = _format_optional_fraction(point.top3_accuracy)
+        set_accuracy = _format_optional_fraction(point.set_accuracy)
+        avg_predictions = f"{point.avg_predictions:.4f}".rstrip("0").rstrip(".")
+        coverage = f"{point.coverage:.4f}".rstrip("0").rstrip(".")
+        logger.info(
+            "Motif calibration >=%.1f: top1_acc=%s, top3_acc=%s, "
+            "set_acc=%s, avg_predictions=%s, coverage=%s, covered=%s/%s",
+            point.weight_threshold,
+            top1_accuracy,
+            top3_accuracy,
+            set_accuracy,
+            avg_predictions,
+            coverage,
+            format_log_number(point.covered_accessions),
+            format_log_number(point.eligible_accessions),
+        )
+
+
+def _format_optional_fraction(value: float | None) -> str:
+    if value is None:
+        return "NA"
+    return f"{value:.4f}".rstrip("0").rstrip(".")
 
 
 def _format_dependencies(dependencies: list[Path]) -> str:

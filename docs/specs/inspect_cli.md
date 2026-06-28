@@ -153,13 +153,53 @@ three query forms:
 
 Cluster metadata defaults to `clusters_meta.tsv` in the working directory.
 
+### `cluster`
+
+```text
+prosig inspect cluster cluster_0008 \
+  --cluster-meta clusters_meta.tsv \
+  --motif-scoreboard motif_cluster_scoreboard.pkl \
+  --motif-library prosig_motifs.tsv
+```
+
+This command reports one functional cluster and the positive motif-cluster
+weights that identify it. The default output is a readable report; use `--json`
+for structured output.
+
+Reports:
+
+- cluster ID
+- cluster size
+- synthetic GO terms from `composed_go`
+- composed description, using `composed_description` when available or deriving
+  one from `composed_go` and `go_graph.pkl`
+- motifs with positive stored weights for the cluster, including motif ID,
+  motif description, TP/FP/FN/TN, odds ratio, and weight
+
+The motif truth table is rendered as in-cluster versus outside-cluster counts:
+
+```text
+              In cluster_0008      Outside cluster_0008
+-------------------------------------------------------
+Motif present              TP                         FP
+Motif absent               FN                         TN
+```
+
+`TP + FN` should equal the reported cluster size. If not, the command prints a
+note because the scoreboard was likely built from different cluster artifacts
+than the current `clusters_meta.tsv`.
+
+Options:
+
+- `--json`: emit JSON diagnostic output.
+
 ## Planned Commands
 
 Future diagnostic commands should be added under this command group:
 
 - accession lookup against an accession-to-MF-GO artifact
 - motif summary and motif lookup
-- cluster summary and cluster member inspection
+- cluster member inspection
 - explanation views connecting motif hits to predicted functions
 
 Output should default to compact, tab-separated human-readable diagnostics, with

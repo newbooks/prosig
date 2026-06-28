@@ -79,22 +79,22 @@ No prior biological knowledge is assumed.
 
 # Derived Statistics
 
-## Cluster Frequency
+## Smoothed Cluster Frequency
 
 Fraction of proteins in the cluster containing the motif.
 
 ```text
-cluster_frequency = TP / (TP + FN)
+cluster_frequency = (TP + 0.5) / (TP + FN + 1)
 ```
 
 ---
 
-## Background Frequency
+## Smoothed Background Frequency
 
 Fraction of proteins outside the cluster containing the motif.
 
 ```text
-background_frequency = FP / (FP + TN)
+background_frequency = (FP + 0.5) / (FP + TN + 1)
 ```
 
 ---
@@ -104,8 +104,14 @@ background_frequency = FP / (FP + TN)
 Measure how much more frequently the motif occurs inside the cluster than outside.
 
 ```text
+cluster_frequency = (TP + 0.5) / (TP + FN + 1)
+background_frequency = (FP + 0.5) / (FP + TN + 1)
 enrichment = cluster_frequency / background_frequency
 ```
+
+The `0.5` pseudocount is a Jeffreys prior for binary motif presence. This keeps
+weights finite when `FP = 0` and makes low-support perfect-background cases less
+dominant than high-support cases.
 
 Interpretation
 
@@ -189,8 +195,8 @@ Each **motif-cluster pair** stores the following information.
 | FN                   | Proteins in cluster without motif              |
 | TN                   | Proteins outside cluster without motif         |
 | support              | TP                                             |
-| cluster_frequency    | TP / (TP + FN)                                 |
-| background_frequency | FP / (FP + TN)                                 |
+| cluster_frequency    | (TP + 0.5) / (TP + FN + 1)                     |
+| background_frequency | (FP + 0.5) / (FP + TN + 1)                     |
 | weight               | log₂(cluster_frequency / background_frequency) |
 
 This table represents the learned association between motifs and functional
@@ -255,7 +261,9 @@ Metadata includes counts for:
 * combinations ignored because support is below 5;
 * combinations ignored because background frequency is unavailable;
 * combinations ignored because weight is zero or negative;
-* total non-zero positive weights stored.
+* total non-zero positive weights stored;
+* internal calibration top-1, top-3, set accuracy, average prediction count, and
+  coverage at motif-weight thresholds 2.0 through 8.0.
 
 ---
 
