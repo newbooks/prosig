@@ -332,6 +332,34 @@ def _write_runtime_library_defaults(tmp_path):
     return tmp_path
 
 
+def _write_feature_evaluation_inputs(tmp_path, *, include_small_cluster=False) -> None:
+    _write_go_graph(tmp_path / "go_graph.pkl")
+    accession_lines = []
+    feature_lines = ["member_id\tcluster_id\tfeature_a\tfeature_b"]
+    for index in range(1, 11):
+        accession = f"P{index}"
+        accession_lines.append(f"{accession}\tGO:0000002")
+        feature_lines.append(f"{accession}\tcluster_0001\t0.{index:02d}\t1.{index:02d}")
+    for index in range(1, 11):
+        accession = f"Q{index}"
+        accession_lines.append(f"{accession}\tGO:0000003")
+        feature_lines.append(f"{accession}\tcluster_0002\t1.{index:02d}\t2.{index:02d}")
+    if include_small_cluster:
+        for index in range(1, 6):
+            accession = f"R{index}"
+            accession_lines.append(f"{accession}\tGO:0000002")
+            feature_lines.append(f"{accession}\tcluster_0003\t3.{index:02d}\t4.{index:02d}")
+    (tmp_path / "accession_mf_go.tsv").write_text(
+        "\n".join(accession_lines) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "feature_values.tsv").write_text(
+        "\n".join(feature_lines) + "\n",
+        encoding="utf-8",
+    )
+    _write_runtime_library_defaults(tmp_path)
+
+
 def test_inspect_help_lists_diagnostic_commands() -> None:
     result = CliRunner().invoke(app, ["inspect", "-h"])
 
@@ -342,6 +370,7 @@ def test_inspect_help_lists_diagnostic_commands() -> None:
     assert "go-set-sim" in result.stdout
     assert "function" in result.stdout
     assert "cluster" in result.stdout
+    assert "feature" in result.stdout
     assert "go-similarity" not in result.stdout
 
 
@@ -1336,3 +1365,74 @@ def test_inspect_function_json_outputs_structured_description(tmp_path) -> None:
     assert payload["summary"] == (
         "GO:0004672;GO:0005524 is annotated as an ATP-binding protein kinase."
     )
+
+
+def test_inspect_feature_defaults_write_scores_and_score_cards(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_feature_evaluation_inputs(tmp_path)
+
+    result = CliRunner().invoke(app, ["inspect", "feature"])
+
+    assert result.exit_code == 0, result.output
+    assert "Wrote feature scores: feature_scores.tsv" in result.stdout
+    scores = (tmp_path / "feature_scores.tsv").read_text(encoding="utf-8").splitlines()
+    assert scores[0] == "feature\tcompactness\tseparation\tgradient\tspecificity"
+    assert scores[1].startswith("feature_a\t")
+    assert scores[2].startswith("feature_b\t")
+    assert (tmp_path / "score_cards" / "feature_a_score_card.png").exists()
+    assert (tmp_path / "score_cards" / "feature_b_score_card.png").exists()
+    feature_a_card = tmp_path / "score_cards" / "feature_a_score_card.png"
+    assert feature_a_card.read_bytes().startswith(b"\x89PNG")
+
+
+def test_inspect_feature_filters_small_clusters_and_selected_card(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_feature_evaluation_inputs(tmp_path, include_small_cluster=True)
+    output_card = tmp_path / "selected.png"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            "feature",
+            "--feature",
+            "feature_b",
+            "--output-card",
+            str(output_card),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Skipped 1 clusters with fewer than 10 unique members" in result.output
+    assert output_card.exists()
+    assert output_card.read_bytes().startswith(b"\x89PNG")
+    assert not (tmp_path / "score_cards" / "feature_a_score_card.png").exists()
+
+
+def test_inspect_feature_errors_when_fewer_than_two_clusters_remain(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_feature_evaluation_inputs(tmp_path)
+    lines = (tmp_path / "feature_values.tsv").read_text(encoding="utf-8").splitlines()
+    one_cluster_lines = [
+        line
+        for line in lines
+        if line.startswith("member_id\t") or "\tcluster_0001\t" in line
+    ]
+    (tmp_path / "feature_values.tsv").write_text(
+        "\n".join(one_cluster_lines) + "\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["inspect", "feature"])
+
+    assert result.exit_code != 0
+    assert "At least two clusters must remain" in result.output

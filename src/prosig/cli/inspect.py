@@ -12,6 +12,7 @@ from typing import Annotated, Any
 
 import typer
 
+from prosig.features import evaluate_feature_file, write_feature_quality_score_cards
 from prosig.go.build import MF_ROOT
 from prosig.go.describe import describe_go_function
 from prosig.go.similarity import (
@@ -443,6 +444,115 @@ def cluster(
         return
 
     typer.echo(_format_cluster_report(payload))
+
+
+@inspect_app.command(name="feature")
+def feature(
+    feature_file: Annotated[
+        Path,
+        typer.Option(
+            "--feature-file",
+            help="Input TSV with member_id, cluster_id, and numeric feature columns.",
+        ),
+    ] = Path("feature_values.tsv"),
+    output_file: Annotated[
+        Path,
+        typer.Option(
+            "--output-file",
+            help="Path to write feature quality scores.",
+        ),
+    ] = Path("feature_scores.tsv"),
+    score_card_dir: Annotated[
+        Path,
+        typer.Option(
+            "--score-card-dir",
+            help="Directory where score card images are written.",
+        ),
+    ] = Path("score_cards"),
+    go_graph: Annotated[
+        Path | None,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Optional path to a compact GO graph pickle. If omitted, "
+                "the resolved runtime library is used."
+            ),
+        ),
+    ] = None,
+    accession_go: Annotated[
+        Path,
+        typer.Option(
+            "--accession-go",
+            help="Accession-to-MF-GO TSV. Defaults to accession_mf_go.tsv.",
+        ),
+    ] = Path("accession_mf_go.tsv"),
+    library_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "Used to resolve --go-graph when --go-graph is omitted."
+            ),
+        ),
+    ] = None,
+    min_cluster_size: Annotated[
+        int,
+        typer.Option(
+            "--min-cluster-size",
+            min=1,
+            help="Minimum unique members required for a cluster to be evaluated.",
+        ),
+    ] = 10,
+    image_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="Score card image format: png or svg.",
+            case_sensitive=False,
+        ),
+    ] = "png",
+    selected_features: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--feature",
+            help="Feature name to plot. Repeat to select multiple features.",
+        ),
+    ] = None,
+    output_card: Annotated[
+        Path | None,
+        typer.Option(
+            "--output-card",
+            help="Explicit score card output path when --feature is used.",
+        ),
+    ] = None,
+) -> None:
+    """Evaluate feature quality and render score cards."""
+    image_format = image_format.lower()
+    resolved_go_graph = _resolve_go_graph_path(go_graph, library_dir)
+    try:
+        result = evaluate_feature_file(
+            feature_file,
+            output_file=output_file,
+            go_graph_file=resolved_go_graph,
+            accession_go_file=accession_go,
+            min_cluster_size=min_cluster_size,
+        )
+        score_cards = write_feature_quality_score_cards(
+            metrics_file=result.output_file,
+            output_dir=score_card_dir,
+            image_format=image_format,
+            features=selected_features,
+            output_file=output_card,
+        )
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(f"file not found: {exc.filename}") from exc
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    typer.echo(f"Wrote feature scores: {result.output_file}")
+    for score_card in score_cards:
+        typer.echo(f"Wrote score card: {score_card}")
 
 
 def _resolve_go_set_queries(
