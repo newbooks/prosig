@@ -1388,6 +1388,31 @@ def test_inspect_feature_defaults_write_scores_and_score_cards(
     assert feature_a_card.read_bytes().startswith(b"\x89PNG")
 
 
+def test_inspect_feature_resolves_accession_go_from_library_dir(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    library_dir = tmp_path / "library"
+    run_dir = tmp_path / "run"
+    library_dir.mkdir()
+    run_dir.mkdir()
+    _write_feature_evaluation_inputs(library_dir)
+    (run_dir / "feature_values.tsv").write_text(
+        (library_dir / "feature_values.tsv").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(run_dir)
+
+    result = CliRunner().invoke(
+        app,
+        ["inspect", "feature", "--library-dir", str(library_dir)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Wrote feature scores: feature_scores.tsv" in result.stdout
+    assert (run_dir / "feature_scores.tsv").exists()
+
+
 def test_inspect_feature_filters_small_clusters_and_selected_card(
     tmp_path,
     monkeypatch,

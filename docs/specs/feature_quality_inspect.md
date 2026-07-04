@@ -38,7 +38,7 @@ prosig inspect feature \
 | `--output-file PATH` | `feature_scores.tsv` | Output TSV containing feature quality metric scores. |
 | `--score-card-dir PATH` | `score_cards` | Directory where score card images are written. |
 | `--go-graph PATH` | resolved runtime library | Optional compact GO graph pickle. |
-| `--accession-go PATH` | `accession_mf_go.tsv` | Optional accession-to-MF-GO TSV. Defaults to the file in the working directory. |
+| `--accession-go PATH` | resolved runtime library | Optional accession-to-MF-GO TSV. |
 | `--library-dir PATH` | existing inspect behavior | Runtime library directory fallback for GO artifacts. |
 | `--min-cluster-size INT` | `10` | Minimum number of members required for a cluster to be evaluated. This has a hard lower limit of `10`; smaller requested values are rejected. Clusters smaller than the accepted threshold are skipped and logged. |
 | `--format png\|svg` | `png` | Score card image format. |
@@ -105,10 +105,17 @@ feature_b	0.7142	0.5000	0.3000	0.1250
 
 Use GO-based similarity for all clusters.
 
-The default accession GO artifact is `accession_mf_go.tsv` in the working
-directory. It must be a tab-separated file that can be read by ProSig's
-`load_accession_mf_go_terms` helper and must provide MF GO terms for retained
-`member_id` values.
+By default, both `go_graph.pkl` and `accession_mf_go.tsv` are resolved through
+the existing runtime library protocol: use a complete runtime library in the
+working directory when present, otherwise use `--library-dir` when provided,
+otherwise use the package-shipped runtime library. The runtime library is
+all-or-nothing; a partial local library should fail rather than mixing local and
+packaged artifacts. `--go-graph` and `--accession-go` may be used as explicit
+per-file overrides.
+
+The accession GO artifact must be a tab-separated file that can be read by
+ProSig's `load_accession_mf_go_terms` helper and must provide MF GO terms for
+retained `member_id` values.
 
 For each retained cluster:
 
@@ -318,7 +325,8 @@ Add test coverage for:
 - Error when fewer than two clusters remain after filtering.
 - Centroid tie-breaking chooses the lexicographically smallest accession.
 - GO-only centroid similarity path.
-- Default accession GO input is `accession_mf_go.tsv` in the working directory.
+- Default GO graph and accession GO inputs are resolved from the same runtime
+  library protocol.
 - `NaN` metric values plot as `0.0`.
 - Output score columns and deterministic feature order.
 - Score card files are created as PNG by default.

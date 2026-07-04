@@ -59,6 +59,21 @@ def _resolve_go_graph_path(
     return _resolve_runtime_library(library_dir).path("go_graph.pkl")
 
 
+def _resolve_feature_go_artifact_paths(
+    *,
+    go_graph: Path | None,
+    accession_go: Path | None,
+    library_dir: Path | None,
+) -> tuple[Path, Path]:
+    if go_graph is not None and accession_go is not None:
+        return go_graph, accession_go
+    library = _resolve_runtime_library(library_dir)
+    return (
+        go_graph or library.path("go_graph.pkl"),
+        accession_go or library.path("accession_mf_go.tsv"),
+    )
+
+
 @inspect_app.command(name="go-summary")
 def go_summary(
     go_graph: Annotated[
@@ -480,12 +495,15 @@ def feature(
         ),
     ] = None,
     accession_go: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--accession-go",
-            help="Accession-to-MF-GO TSV. Defaults to accession_mf_go.tsv.",
+            help=(
+                "Optional accession-to-MF-GO TSV. If omitted, the resolved "
+                "runtime library is used."
+            ),
         ),
-    ] = Path("accession_mf_go.tsv"),
+    ] = None,
     library_dir: Annotated[
         Path | None,
         typer.Option(
@@ -532,13 +550,17 @@ def feature(
 ) -> None:
     """Evaluate feature quality and render score cards."""
     image_format = image_format.lower()
-    resolved_go_graph = _resolve_go_graph_path(go_graph, library_dir)
     try:
+        resolved_go_graph, resolved_accession_go = _resolve_feature_go_artifact_paths(
+            go_graph=go_graph,
+            accession_go=accession_go,
+            library_dir=library_dir,
+        )
         result = evaluate_feature_file(
             feature_file,
             output_file=output_file,
             go_graph_file=resolved_go_graph,
-            accession_go_file=accession_go,
+            accession_go_file=resolved_accession_go,
             min_cluster_size=min_cluster_size,
         )
         score_cards = write_feature_quality_score_cards(
