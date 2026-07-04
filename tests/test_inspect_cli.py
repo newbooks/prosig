@@ -1378,6 +1378,7 @@ def test_inspect_feature_defaults_write_scores_and_score_cards(
 
     assert result.exit_code == 0, result.output
     assert "Wrote feature scores: feature_scores.tsv" in result.stdout
+    assert "Wrote score cards to: score_cards" in result.stdout
     scores = (tmp_path / "feature_scores.tsv").read_text(encoding="utf-8").splitlines()
     assert scores[0] == "feature\tcompactness\tseparation\tgradient\tspecificity"
     assert scores[1].startswith("feature_a\t")
@@ -1409,6 +1410,9 @@ def test_inspect_feature_resolves_accession_go_from_library_dir(
     )
 
     assert result.exit_code == 0, result.output
+    assert "Resolved feature GO artifacts from user-specified runtime library" in (
+        result.output
+    )
     assert "Wrote feature scores: feature_scores.tsv" in result.stdout
     assert (run_dir / "feature_scores.tsv").exists()
 
@@ -1435,6 +1439,7 @@ def test_inspect_feature_filters_small_clusters_and_selected_card(
 
     assert result.exit_code == 0, result.output
     assert "Skipped 1 clusters with fewer than 10 unique members" in result.output
+    assert f"Wrote score cards to: {tmp_path}" in result.stdout
     assert output_card.exists()
     assert output_card.read_bytes().startswith(b"\x89PNG")
     assert not (tmp_path / "score_cards" / "feature_a_score_card.png").exists()

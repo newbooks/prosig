@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import pickle
 import re
 import textwrap
@@ -26,6 +27,7 @@ from prosig.go.similarity import (
 from prosig.library import resolve_core_library
 
 CLUSTER_ID_PATTERN = re.compile(r"^cluster_\d+$")
+LOGGER = logging.getLogger(__name__)
 
 inspect_app = typer.Typer(
     help="Inspect ProSig data artifacts and diagnostic calculations.",
@@ -64,13 +66,15 @@ def _resolve_feature_go_artifact_paths(
     go_graph: Path | None,
     accession_go: Path | None,
     library_dir: Path | None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path, str | None, Path | None]:
     if go_graph is not None and accession_go is not None:
-        return go_graph, accession_go
+        return go_graph, accession_go, None, None
     library = _resolve_runtime_library(library_dir)
     return (
         go_graph or library.path("go_graph.pkl"),
         accession_go or library.path("accession_mf_go.tsv"),
+        library.source,
+        library.directory,
     )
 
 
@@ -551,11 +555,28 @@ def feature(
     """Evaluate feature quality and render score cards."""
     image_format = image_format.lower()
     try:
-        resolved_go_graph, resolved_accession_go = _resolve_feature_go_artifact_paths(
+        (
+            resolved_go_graph,
+            resolved_accession_go,
+            library_source,
+            library_directory,
+        ) = _resolve_feature_go_artifact_paths(
             go_graph=go_graph,
             accession_go=accession_go,
             library_dir=library_dir,
         )
+        if library_source is not None and library_directory is not None:
+            LOGGER.info(
+                "Resolved feature GO artifacts from %s runtime library: %s",
+                library_source,
+                library_directory,
+            )
+        else:
+            LOGGER.info(
+                "Resolved feature GO artifacts from explicit paths: %s, %s",
+                resolved_go_graph,
+                resolved_accession_go,
+            )
         result = evaluate_feature_file(
             feature_file,
             output_file=output_file,
@@ -563,7 +584,7 @@ def feature(
             accession_go_file=resolved_accession_go,
             min_cluster_size=min_cluster_size,
         )
-        score_cards = write_feature_quality_score_cards(
+        write_feature_quality_score_cards(
             metrics_file=result.output_file,
             output_dir=score_card_dir,
             image_format=image_format,
@@ -576,8 +597,12 @@ def feature(
         raise typer.BadParameter(str(exc)) from exc
 
     typer.echo(f"Wrote feature scores: {result.output_file}")
-    for score_card in score_cards:
-        typer.echo(f"Wrote score card: {score_card}")
+    score_card_output_dir = (
+        output_card.parent
+        if output_card is not None
+        else score_card_dir
+    )
+    typer.echo(f"Wrote score cards to: {score_card_output_dir}")
 
 
 def _resolve_go_set_queries(
