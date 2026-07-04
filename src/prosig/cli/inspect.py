@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import pickle
 import re
 import textwrap
@@ -12,6 +13,7 @@ from typing import Annotated, Any
 
 import typer
 
+from prosig.features import evaluate_feature_file, write_feature_quality_score_cards
 from prosig.go.build import MF_ROOT
 from prosig.go.describe import describe_go_function
 from prosig.go.similarity import (
@@ -25,6 +27,7 @@ from prosig.go.similarity import (
 from prosig.library import resolve_core_library
 
 CLUSTER_ID_PATTERN = re.compile(r"^cluster_\d+$")
+LOGGER = logging.getLogger(__name__)
 
 inspect_app = typer.Typer(
     help="Inspect ProSig data artifacts and diagnostic calculations.",
@@ -56,6 +59,23 @@ def _resolve_go_graph_path(
     if go_graph is not None:
         return go_graph
     return _resolve_runtime_library(library_dir).path("go_graph.pkl")
+
+
+def _resolve_feature_go_artifact_paths(
+    *,
+    go_graph: Path | None,
+    accession_go: Path | None,
+    library_dir: Path | None,
+) -> tuple[Path, Path, str | None, Path | None]:
+    if go_graph is not None and accession_go is not None:
+        return go_graph, accession_go, None, None
+    library = _resolve_runtime_library(library_dir)
+    return (
+        go_graph or library.path("go_graph.pkl"),
+        accession_go or library.path("accession_mf_go.tsv"),
+        library.source,
+        library.directory,
+    )
 
 
 @inspect_app.command(name="go-summary")
@@ -443,6 +463,127 @@ def cluster(
         return
 
     typer.echo(_format_cluster_report(payload))
+
+
+@inspect_app.command(name="feature")
+def feature(
+    feature_file: Annotated[
+        Path,
+        typer.Option(
+            "--feature-file",
+            help="Input TSV with member_id, cluster_id, and numeric feature columns.",
+        ),
+    ] = Path("feature_values.tsv"),
+    output_file: Annotated[
+        Path,
+        typer.Option(
+            "--output-file",
+            help="Path to write feature quality scores.",
+        ),
+    ] = Path("feature_scores.tsv"),
+    go_graph: Annotated[
+        Path | None,
+        typer.Option(
+            "--go-graph",
+            help=(
+                "Optional path to a compact GO graph pickle. If omitted, "
+                "the resolved runtime library is used."
+            ),
+        ),
+    ] = None,
+    accession_go: Annotated[
+        Path | None,
+        typer.Option(
+            "--accession-go",
+            help=(
+                "Optional accession-to-MF-GO TSV. If omitted, the resolved "
+                "runtime library is used."
+            ),
+        ),
+    ] = None,
+    library_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--library-dir",
+            help=(
+                "Directory containing the complete ProSig runtime library. "
+                "Used to resolve --go-graph when --go-graph is omitted."
+            ),
+        ),
+    ] = None,
+    min_cluster_size: Annotated[
+        int,
+        typer.Option(
+            "--min-cluster-size",
+            min=10,
+            help=(
+                "Minimum unique members required for a cluster to be evaluated. "
+                "Hard lower limit: 10."
+            ),
+        ),
+    ] = 10,
+    image_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="Score card image format: png or svg.",
+            case_sensitive=False,
+        ),
+    ] = "png",
+    selected_features: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--feature",
+            help="Feature name to plot. Repeat to select multiple features.",
+        ),
+    ] = None,
+) -> None:
+    """Evaluate feature quality and render score cards."""
+    image_format = image_format.lower()
+    score_card_dir = Path("score_cards")
+    try:
+        (
+            resolved_go_graph,
+            resolved_accession_go,
+            library_source,
+            library_directory,
+        ) = _resolve_feature_go_artifact_paths(
+            go_graph=go_graph,
+            accession_go=accession_go,
+            library_dir=library_dir,
+        )
+        if library_source is not None and library_directory is not None:
+            LOGGER.info(
+                "Resolved feature GO artifacts from %s runtime library: %s",
+                library_source,
+                library_directory,
+            )
+        else:
+            LOGGER.info(
+                "Resolved feature GO artifacts from explicit paths: %s, %s",
+                resolved_go_graph,
+                resolved_accession_go,
+            )
+        result = evaluate_feature_file(
+            feature_file,
+            output_file=output_file,
+            go_graph_file=resolved_go_graph,
+            accession_go_file=resolved_accession_go,
+            min_cluster_size=min_cluster_size,
+        )
+        write_feature_quality_score_cards(
+            metrics_file=result.output_file,
+            output_dir=score_card_dir,
+            image_format=image_format,
+            features=selected_features,
+        )
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(f"file not found: {exc.filename}") from exc
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    typer.echo(f"Wrote feature scores: {result.output_file}")
+    typer.echo(f"Wrote score cards to: {score_card_dir}")
 
 
 def _resolve_go_set_queries(
