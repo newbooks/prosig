@@ -26,8 +26,7 @@ is equivalent to:
 ```bash
 prosig inspect feature \
   --feature-file feature_values.tsv \
-  --output-file feature_scores.tsv \
-  --score-card-dir score_cards
+  --output-file feature_scores.tsv
 ```
 
 ## CLI Options
@@ -36,20 +35,18 @@ prosig inspect feature \
 |---|---:|---|
 | `--feature-file PATH` | `feature_values.tsv` | Input TSV containing member IDs, cluster IDs, and numeric feature columns. |
 | `--output-file PATH` | `feature_scores.tsv` | Output TSV containing feature quality metric scores. |
-| `--score-card-dir PATH` | `score_cards` | Directory where score card images are written. |
 | `--go-graph PATH` | resolved runtime library | Optional compact GO graph pickle. |
 | `--accession-go PATH` | resolved runtime library | Optional accession-to-MF-GO TSV. |
 | `--library-dir PATH` | existing inspect behavior | Runtime library directory fallback for GO artifacts. |
 | `--min-cluster-size INT` | `10` | Minimum number of members required for a cluster to be evaluated. This has a hard lower limit of `10`; smaller requested values are rejected. Clusters smaller than the accepted threshold are skipped and logged. |
 | `--format png\|svg` | `png` | Score card image format. |
 | `--feature NAME` | none | Optional repeated feature selector for score card rendering. |
-| `--output-card PATH` | none | Optional single score card output path, allowed only when `--feature` is used. |
 
 The command should print the paths it writes:
 
 ```text
 Wrote feature scores: feature_scores.tsv
-Wrote score card: score_cards/feature_a_score_card.png
+Wrote score cards to: score_cards
 ```
 
 ## Input Format
@@ -250,8 +247,9 @@ score_cards/<feature>_score_card.png
 score_cards/selected_features_score_card.png
 ```
 
-- If `--output-card` is provided, use that path for selected-feature mode.
-- `--output-card` is invalid unless at least one `--feature` is provided.
+- The score card output directory is always `score_cards/`.
+- Existing score card files may be overwritten, including when different
+  feature names slugify to the same filename stem.
 - Plot values should be clipped to `[0, 1]`.
 - If a metric value is `NaN`, plot it as `0.0`.
 - Display raw metric values formatted to four decimals.
@@ -309,7 +307,6 @@ Report user-facing errors for:
 - GO similarity outside `[0, 1]`.
 - Selected score-card feature not present in `feature_scores.tsv`.
 - Unsupported score card format.
-- `--output-card` without `--feature`.
 
 ## Tests
 
@@ -331,5 +328,4 @@ Add test coverage for:
 - Output score columns and deterministic feature order.
 - Score card files are created as PNG by default.
 - Selected features render into one combined score card.
-- `--output-card` works in selected-feature mode.
 - No EC-specific fallback is used.

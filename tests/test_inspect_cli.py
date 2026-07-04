@@ -1423,7 +1423,6 @@ def test_inspect_feature_filters_small_clusters_and_selected_card(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _write_feature_evaluation_inputs(tmp_path, include_small_cluster=True)
-    output_card = tmp_path / "selected.png"
 
     result = CliRunner().invoke(
         app,
@@ -1432,14 +1431,13 @@ def test_inspect_feature_filters_small_clusters_and_selected_card(
             "feature",
             "--feature",
             "feature_b",
-            "--output-card",
-            str(output_card),
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert "Skipped 1 clusters with fewer than 10 unique members" in result.output
-    assert f"Wrote score cards to: {tmp_path}" in result.stdout
+    assert "Wrote score cards to: score_cards" in result.stdout
+    output_card = tmp_path / "score_cards" / "selected_features_score_card.png"
     assert output_card.exists()
     assert output_card.read_bytes().startswith(b"\x89PNG")
     assert not (tmp_path / "score_cards" / "feature_a_score_card.png").exists()

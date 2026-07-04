@@ -481,13 +481,6 @@ def feature(
             help="Path to write feature quality scores.",
         ),
     ] = Path("feature_scores.tsv"),
-    score_card_dir: Annotated[
-        Path,
-        typer.Option(
-            "--score-card-dir",
-            help="Directory where score card images are written.",
-        ),
-    ] = Path("score_cards"),
     go_graph: Annotated[
         Path | None,
         typer.Option(
@@ -544,16 +537,10 @@ def feature(
             help="Feature name to plot. Repeat to select multiple features.",
         ),
     ] = None,
-    output_card: Annotated[
-        Path | None,
-        typer.Option(
-            "--output-card",
-            help="Explicit score card output path when --feature is used.",
-        ),
-    ] = None,
 ) -> None:
     """Evaluate feature quality and render score cards."""
     image_format = image_format.lower()
+    score_card_dir = Path("score_cards")
     try:
         (
             resolved_go_graph,
@@ -589,7 +576,6 @@ def feature(
             output_dir=score_card_dir,
             image_format=image_format,
             features=selected_features,
-            output_file=output_card,
         )
     except FileNotFoundError as exc:
         raise typer.BadParameter(f"file not found: {exc.filename}") from exc
@@ -597,12 +583,7 @@ def feature(
         raise typer.BadParameter(str(exc)) from exc
 
     typer.echo(f"Wrote feature scores: {result.output_file}")
-    score_card_output_dir = (
-        output_card.parent
-        if output_card is not None
-        else score_card_dir
-    )
-    typer.echo(f"Wrote score cards to: {score_card_output_dir}")
+    typer.echo(f"Wrote score cards to: {score_card_dir}")
 
 
 def _resolve_go_set_queries(
