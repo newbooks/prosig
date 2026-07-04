@@ -197,13 +197,24 @@ def compute_specificity_score(
 
     local_gaps: list[float] = []
     for cluster_i, mean_i, std_i in cluster_stats:
-        gaps = []
+        neighbor_gaps = []
         for cluster_j, mean_j, std_j in cluster_stats:
             if cluster_i == cluster_j:
                 continue
-            raw_gap = abs(mean_i - mean_j) - (std_i + std_j)
-            gaps.append(max(0.0, raw_gap))
-        local_gaps.append(float(max(sorted(gaps)[:local_neighbor_count])))
+            feature_distance = abs(mean_i - mean_j)
+            raw_gap = feature_distance - (std_i + std_j)
+            neighbor_gaps.append(
+                (
+                    feature_distance,
+                    str(cluster_j),
+                    max(0.0, raw_gap),
+                )
+            )
+        nearest_gaps = [
+            gap
+            for _, _, gap in sorted(neighbor_gaps)[:local_neighbor_count]
+        ]
+        local_gaps.append(float(max(nearest_gaps)))
 
     specificity_raw = max(local_gaps)
     specificity = specificity_raw / (specificity_raw + global_std + epsilon)
