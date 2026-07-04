@@ -56,8 +56,10 @@ def evaluate_feature_file(
     min_cluster_size: int = DEFAULT_MIN_CLUSTER_SIZE,
 ) -> FeatureEvaluationResult:
     """Evaluate numeric feature columns and write a feature score TSV."""
-    if min_cluster_size < 1:
-        raise ValueError("minimum cluster size must be at least 1")
+    if min_cluster_size < DEFAULT_MIN_CLUSTER_SIZE:
+        raise ValueError(
+            f"minimum cluster size must be at least {DEFAULT_MIN_CLUSTER_SIZE}"
+        )
 
     feature_path = Path(feature_file)
     output_path = Path(output_file)
@@ -168,12 +170,20 @@ def _load_feature_table(path: Path) -> _FeatureTable:
             parsed_row = {"member_id": member_id, "cluster_id": cluster_id}
             for feature_column in feature_columns:
                 raw_value = str(row.get(feature_column, "")).strip()
+                if not raw_value:
+                    raise ValueError(
+                        f"Feature column has blank value: {feature_column}"
+                    )
                 try:
                     numeric_value = float(raw_value)
                 except ValueError as exc:
                     raise ValueError(
                         f"Feature column is not numeric: {feature_column}"
                     ) from exc
+                if not math.isfinite(numeric_value):
+                    raise ValueError(
+                        f"Feature column has non-finite value: {feature_column}"
+                    )
                 parsed_row[feature_column] = str(numeric_value)
             rows.append(parsed_row)
 

@@ -1436,3 +1436,38 @@ def test_inspect_feature_errors_when_fewer_than_two_clusters_remain(
 
     assert result.exit_code != 0
     assert "At least two clusters must remain" in result.output
+
+
+def test_inspect_feature_rejects_min_cluster_size_below_ten(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_feature_evaluation_inputs(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["inspect", "feature", "--min-cluster-size", "2"],
+    )
+
+    assert result.exit_code != 0
+    assert "10" in result.output
+
+
+def test_inspect_feature_rejects_blank_feature_cells(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_feature_evaluation_inputs(tmp_path)
+    contents = (tmp_path / "feature_values.tsv").read_text(encoding="utf-8")
+    contents = contents.replace(
+        "P1\tcluster_0001\t0.01\t1.01",
+        "P1\tcluster_0001\t\t1.01",
+    )
+    (tmp_path / "feature_values.tsv").write_text(contents, encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["inspect", "feature"])
+
+    assert result.exit_code != 0
+    assert "blank value" in result.output

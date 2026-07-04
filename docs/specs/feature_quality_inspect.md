@@ -40,7 +40,7 @@ prosig inspect feature \
 | `--go-graph PATH` | resolved runtime library | Optional compact GO graph pickle. |
 | `--accession-go PATH` | `accession_mf_go.tsv` | Optional accession-to-MF-GO TSV. Defaults to the file in the working directory. |
 | `--library-dir PATH` | existing inspect behavior | Runtime library directory fallback for GO artifacts. |
-| `--min-cluster-size INT` | `10` | Minimum number of members required for a cluster to be evaluated. Clusters smaller than this threshold are skipped and logged. |
+| `--min-cluster-size INT` | `10` | Minimum number of members required for a cluster to be evaluated. This has a hard lower limit of `10`; smaller requested values are rejected. Clusters smaller than the accepted threshold are skipped and logged. |
 | `--format png\|svg` | `png` | Score card image format. |
 | `--feature NAME` | none | Optional repeated feature selector for score card rendering. |
 | `--output-card PATH` | none | Optional single score card output path, allowed only when `--feature` is used. |
@@ -69,9 +69,10 @@ Rules:
 - `cluster_id` is a GO-derived ProSig cluster identifier, such as `cluster_0001`.
 - Every column other than `member_id` and `cluster_id` is treated as one numeric feature.
 - At least one feature column is required.
-- Feature columns must contain numeric values. Raise a user-facing error if any
-  feature value cannot be converted to a number.
-- Missing or non-finite feature values should be ignored during metric computation.
+- Feature columns must contain numeric values in every cell. Blank cells are not
+  allowed.
+- Raise a user-facing error if any feature cell is blank, non-numeric, or
+  non-finite.
 - Cluster size is the number of unique `member_id` values for each `cluster_id`.
 - Clusters with fewer than `--min-cluster-size` unique members are skipped before evaluation.
 - Skipped clusters must be logged at info level with the threshold and skipped
@@ -137,8 +138,8 @@ Compactness rewards low within-cluster variance relative to global variance.
 
 For one feature:
 
-1. Keep finite numeric values only.
-2. Keep clusters with enough valid values for this metric.
+1. Use the dense numeric feature values validated during input loading.
+2. Keep clusters with enough values for this metric.
 3. Compute global sample variance across all retained values.
 4. For each cluster:
 
@@ -278,11 +279,12 @@ The CLI should stay thin:
 4. Print written output paths.
 
 The evaluation step must apply `--min-cluster-size` before any metric
-calculation. The default threshold is `10`, so only clusters with at least
-10 unique `member_id` values contribute to compactness, separation, gradient,
-specificity, GO centroid selection, and score card outputs. Clusters below the
-threshold are not errors; they are skipped and logged. Evaluation requires at
-least two qualified clusters after filtering.
+calculation. The default threshold is `10`, and `10` is a hard lower limit.
+Values below `10` must be rejected. Only clusters with at least the accepted
+number of unique `member_id` values contribute to compactness, separation,
+gradient, specificity, GO centroid selection, and score card outputs. Clusters
+below the threshold are not errors; they are skipped and logged. Evaluation
+requires at least two qualified clusters after filtering.
 
 ## Error Handling
 
@@ -291,8 +293,8 @@ Report user-facing errors for:
 - Missing `feature_values.tsv`.
 - Missing required columns: `member_id`, `cluster_id`.
 - No feature columns.
-- Non-numeric feature column.
-- `--min-cluster-size < 1`.
+- Blank, non-numeric, or non-finite feature value.
+- `--min-cluster-size < 10`.
 - Fewer than two clusters remain after cluster-size filtering.
 - Missing GO graph.
 - Missing accession GO file.
@@ -310,7 +312,8 @@ Add test coverage for:
   creates `score_cards/`.
 - Input validation for required columns.
 - Input validation for missing feature columns.
-- Input validation for non-numeric feature columns.
+- Input validation for blank, non-numeric, and non-finite feature values.
+- Error when `--min-cluster-size` is smaller than `10`.
 - Cluster-size filtering uses unique `member_id` counts, not row counts.
 - Error when fewer than two clusters remain after filtering.
 - Centroid tie-breaking chooses the lexicographically smallest accession.

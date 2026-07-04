@@ -500,8 +500,11 @@ def feature(
         int,
         typer.Option(
             "--min-cluster-size",
-            min=1,
-            help="Minimum unique members required for a cluster to be evaluated.",
+            min=10,
+            help=(
+                "Minimum unique members required for a cluster to be evaluated. "
+                "Hard lower limit: 10."
+            ),
         ),
     ] = 10,
     image_format: Annotated[
