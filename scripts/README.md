@@ -79,3 +79,39 @@ python scripts/plot_cluster_mds.py \
   --min-radius 0.05 \
   --max-radius 0.25
 ```
+
+## Scan Similarity Comparison
+
+`compare_scan_similarity.py` randomly samples clusters and accessions from
+`clusters.tsv`, computes GO set similarity across all selected accession pairs as
+the background distribution, computes the same similarity for pairs within each
+selected cluster, then scans each accession sequence with the same machinery used
+by `prosig scan` and scores the top predicted GO set against the accession's
+known Molecular Function GO profile. The random selection only requires valid GO
+profiles and FASTA sequences; it does not apply GO-similarity or sequence-
+similarity constraints.
+
+Example from the repository root:
+
+```bash
+python scripts/compare_scan_similarity.py \
+  --clusters work/clusters.tsv \
+  --library-dir work \
+  --fasta work/accession.fasta \
+  --fasta-index work/accession.fasta.idx \
+  --cluster-count 10 \
+  --accessions-per-cluster 10 \
+  --seed 1 \
+  --out-dir work/random_cluster_scan_similarity
+```
+
+The output directory contains:
+
+- `selected_accessions.tsv`: sampled clusters/accessions and true GO profiles.
+- `pairwise_similarity.tsv`: background and in-cluster pairwise GO similarities.
+- `prediction_similarity.tsv`: one top scan prediction and similarity per accession.
+- `similarity_summary.tsv`: summary statistics for the three distributions.
+- `similarity_summary.json`: JSON copy of the same summary.
+
+To reuse an existing panel instead of sampling from `clusters.tsv`, pass
+`--selected-accessions path/to/selected_accessions.tsv`.
