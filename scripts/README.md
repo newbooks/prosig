@@ -40,6 +40,27 @@ python ../scripts/plot_function_label_treemap.py \
   --top-cluster-groups 0
 ```
 
+## Motif enrichment treemap
+
+`plot_motif_enrichment.py` uses the same cluster-population layout as
+`cluster_label_population_treemap.html`. Tile area represents cluster size and
+tile color represents the selected motif's enrichment `weight` from
+`motif_cluster_scoreboard.pkl`. The default Viridis scale spans weights 0 to
+10; hover text keeps the uncapped weight. In the HTML output, click a tile to
+pin its details on the plot.
+
+Run it from `work/` and pass a motif ID:
+
+```bash
+python ../scripts/plot_motif_enrichment.py 11S_SEED_STORAGE
+```
+
+The default outputs are `motif_enrichment_11S_SEED_STORAGE.html` and a matching
+TSV summary. Every cluster is included by default; use `--top-cluster-groups`
+to limit the display to the largest clusters.
+Use `--color-scale Cividis` for a color-vision-friendly alternative, or choose
+`Plasma`, `Magma`, or `Inferno`.
+
 ## Cluster MDS
 
 `plot_cluster_mds.py` reads a tab-separated cluster similarity matrix, converts

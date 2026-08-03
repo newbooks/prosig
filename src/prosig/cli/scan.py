@@ -438,6 +438,7 @@ def _format_prediction(index: int, prediction: dict[str, Any]) -> list[str]:
         "",
         f"{index}. {';'.join(prediction['go_terms']) or 'NA'}",
         f"Signature:     {prediction['signature']}",
+        f"Name:          {prediction['motif_id']}",
         f"Clusters:       {','.join(prediction['cluster_ids'])}",
         *description_lines,
         f"GO terms:       {';'.join(prediction['go_terms']) or 'NA'}",
