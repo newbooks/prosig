@@ -166,11 +166,18 @@ def _read_similarity_matrix(path: Path):
     if matrix.empty:
         raise SystemExit(f"Input matrix is empty: {path}")
     try:
-        return matrix.apply(pd.to_numeric, errors="raise")
+        matrix = matrix.apply(pd.to_numeric, errors="raise")
     except Exception as exc:
         raise SystemExit(
             f"Input matrix contains non-numeric similarity values: {path}"
         ) from exc
+
+    # Column headers are always read as strings, while pandas may infer
+    # numeric-looking row IDs as integers. Keep both axes in the same string
+    # domain so downstream label-based lookups work consistently.
+    matrix.index = matrix.index.astype(str)
+    matrix.columns = matrix.columns.astype(str)
+    return matrix
 
 
 def _similarity_to_distance(similarity):
