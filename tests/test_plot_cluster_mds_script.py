@@ -35,6 +35,27 @@ def test_numeric_cluster_ids_remain_strings_for_line_lookup(tmp_path: Path) -> N
     assert similarity.loc["101", "102"] == 0.5
 
 
+def test_leading_zeros_in_cluster_ids_are_preserved(tmp_path: Path) -> None:
+    module = _load_script_module()
+    matrix_path = tmp_path / "similarity.tsv"
+    matrix_path.write_text(
+        "cluster_id\t001\t002\n"
+        "001\t1.0\t0.5\n"
+        "002\t0.5\t1.0\n",
+        encoding="utf-8",
+    )
+
+    similarity = module._read_similarity_matrix(matrix_path)
+    module._validate_distance_matrix(
+        module._similarity_to_distance(similarity),
+        atol=1e-8,
+    )
+
+    assert list(similarity.index) == ["001", "002"]
+    assert list(similarity.columns) == ["001", "002"]
+    assert similarity.loc["001", "002"] == 0.5
+
+
 def test_output_extensions_preserve_dotted_prefix() -> None:
     module = _load_script_module()
     prefix = Path("results/mds.v1")

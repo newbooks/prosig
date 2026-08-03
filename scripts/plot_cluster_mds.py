@@ -159,7 +159,7 @@ def _read_similarity_matrix(path: Path):
         ) from exc
 
     try:
-        matrix = pd.read_csv(path, sep="\t", index_col=0)
+        matrix = pd.read_csv(path, sep="\t", index_col=0, converters={0: str})
     except FileNotFoundError as exc:
         raise SystemExit(f"Input matrix not found: {path}") from exc
 
