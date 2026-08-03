@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProSig visualization demos</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+      line-height: 1.5;
+    }
+
+    body {
+      max-width: 58rem;
+      margin: 0 auto;
+      padding: 3rem 1.25rem;
+    }
+
+    h1 {
+      margin-bottom: 0.25rem;
+    }
+
+    h2 {
+      margin-top: 2.25rem;
+    }
+
+    ul {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+      gap: 1rem;
+      padding: 0;
+      list-style: none;
+    }
+
+    a {
+      display: block;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 1rem 1.2rem;
+      border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      border-radius: 0.5rem;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    a:hover,
+    a:focus-visible {
+      border-color: currentColor;
+      background: color-mix(in srgb, currentColor 7%, transparent);
+    }
+
+    strong,
+    small {
+      display: block;
+    }
+
+    small {
+      margin-top: 0.35rem;
+      opacity: 0.72;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ProSig visualization demos</h1>
+    <p>Interactive views of functional clusters and motif enrichment.</p>
+
+    <h2>Function and cluster treemaps</h2>
+    <ul>
+      <li>
+        <a href="function_label_treemap.html">
+          <strong>Function labels</strong>
+          <small>Functional group treemap</small>
+        </a>
+      </li>
+      <li>
+        <a href="go_label_population_treemap.html">
+          <strong>GO label populations</strong>
+          <small>Gene Ontology group populations</small>
+        </a>
+      </li>
+      <li>
+        <a href="cluster_label_population_treemap.html">
+          <strong>Cluster label populations</strong>
+          <small>Function-cluster populations</small>
+        </a>
+      </li>
+    </ul>
+
+    <h2>Motif enrichment</h2>
+    <ul>
+      <li>
+        <a href="motif_enrichment_CYTOCHROME_P450.html">
+          <strong>Cytochrome P450</strong>
+          <small>Motif enrichment across function clusters</small>
+        </a>
+      </li>
+      <li>
+        <a href="motif_enrichment_PROTEIN_KINASE_TYR.html">
+          <strong>Protein kinase, tyrosine</strong>
+          <small>Motif enrichment across function clusters</small>
+        </a>
+      </li>
+    </ul>
+  </main>
+</body>
+</html>
