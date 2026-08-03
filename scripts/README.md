@@ -40,6 +40,25 @@ python ../scripts/plot_function_label_treemap.py \
   --top-cluster-groups 0
 ```
 
+## Motif enrichment treemap
+
+`plot_motif_enrichment.py` uses the same cluster-population layout as
+`cluster_label_population_treemap.html`. Tile area represents cluster size and
+tile color represents the selected motif's enrichment `weight` from
+`motif_cluster_scoreboard.pkl`. Missing motif-cluster pairs are shown at weight
+0 in light grey; weights at 10 or above are shown in dark blue. Hover text keeps
+the uncapped weight.
+
+Run it from `work/` and pass a motif ID:
+
+```bash
+python ../scripts/plot_motif_enrichment.py 11S_SEED_STORAGE
+```
+
+The default outputs are `motif_enrichment_11S_SEED_STORAGE.html` and a matching
+TSV summary. Every cluster is included by default; use `--top-cluster-groups`
+to limit the display to the largest clusters.
+
 ## Cluster MDS
 
 `plot_cluster_mds.py` reads a tab-separated cluster similarity matrix, converts
