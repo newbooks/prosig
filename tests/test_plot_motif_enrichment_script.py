@@ -83,3 +83,13 @@ def test_template_group_id_is_mapped_to_scoreboard_cluster_id() -> None:
     module = _load_script_module()
 
     assert module._raw_cluster_id("cluster:cluster_0008") == "cluster_0008"
+
+
+def test_click_script_pins_tile_details() -> None:
+    module = _load_script_module()
+
+    script = module._click_to_pin_script()
+
+    assert "plotly_click" in script
+    assert "Enrichment weight" in script
+    assert "Plotly.relayout" in script

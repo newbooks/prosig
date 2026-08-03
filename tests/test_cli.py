@@ -38,6 +38,7 @@ def test_scan_sequence_reports_inferred_go_sets(tmp_path, monkeypatch) -> None:
     assert "Inferred GO sets (top 5, weight >= 2):" in result.stdout
     assert "1. GO:0004672;GO:0005524" in result.stdout
     assert "Signature:     AA" in result.stdout
+    assert "Signature:     AA\nName:          MOTIF_A" in result.stdout
     assert "Clusters:       cluster_0001" in result.stdout
     assert "Description:" in result.stdout
     assert "ATP-binding protein kinase" in result.stdout

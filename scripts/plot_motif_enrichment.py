@@ -24,9 +24,8 @@ from plot_function_label_treemap import (  # noqa: E402
     _load_go_terms,
 )
 
-LIGHT_GREY = "#d3d3d3"
-DARK_BLUE = "#08306b"
 COLOR_MAX = 10.0
+COLOR_SCALES = ("Viridis", "Cividis", "Plasma", "Magma", "Inferno")
 
 
 @dataclass(frozen=True)
@@ -79,6 +78,7 @@ def main() -> None:
             title=args.title or f"Motif enrichment: {args.motif}",
             width=args.width,
             height=args.height,
+            color_scale=args.color_scale,
         )
         print(f"Wrote motif enrichment treemap to {output}")
     print(f"Wrote motif enrichment table to {summary_tsv}")
@@ -127,6 +127,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--title")
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=900)
+    parser.add_argument(
+        "--color-scale",
+        choices=COLOR_SCALES,
+        default="Viridis",
+        help=(
+            "Plotly continuous color scale. Viridis is the default; Cividis is "
+            "a color-vision-friendly alternative."
+        ),
+    )
     args = parser.parse_args()
     if args.top_cluster_groups < 0:
         parser.error("--top-cluster-groups must be at least 0")
@@ -212,6 +221,7 @@ def _write_treemap(
     title: str,
     width: int,
     height: int,
+    color_scale: str,
 ) -> None:
     try:
         import plotly.graph_objects as go
@@ -255,7 +265,7 @@ def _write_treemap(
             branchvalues="total",
             marker={
                 "colors": colors,
-                "colorscale": [[0.0, LIGHT_GREY], [1.0, DARK_BLUE]],
+                "colorscale": color_scale,
                 "cmin": 0.0,
                 "cmax": COLOR_MAX,
                 "colorbar": {"title": "Weight", "tickvals": [0, 2, 4, 6, 8, 10]},
@@ -273,7 +283,11 @@ def _write_treemap(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.suffix.lower() == ".html":
-        fig.write_html(output, include_plotlyjs="cdn")
+        fig.write_html(
+            output,
+            include_plotlyjs="cdn",
+            post_script=_click_to_pin_script(),
+        )
         return
     try:
         fig.write_image(output)
@@ -282,6 +296,38 @@ def _write_treemap(
             "Static image export requires kaleido. Install it with: "
             "python -m pip install kaleido"
         ) from exc
+
+
+def _click_to_pin_script() -> str:
+    """Return JavaScript that pins a clicked tile's hover details on the plot."""
+    return r"""
+const plot = document.getElementById('{plot_id}');
+plot.on('plotly_click', function(eventData) {
+    const point = eventData.points[0];
+    if (!point.customdata || !point.customdata[1]) {
+        return;
+    }
+    const escapeHtml = (value) => String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    const details = point.customdata;
+    const text = '<b>' + escapeHtml(details[1]) + '</b>' +
+        '<br>Members: ' + Number(point.value).toLocaleString() +
+        '<br>Motif: ' + escapeHtml(details[0]) +
+        '<br>Enrichment weight: ' + Number(details[2]).toFixed(4);
+    Plotly.relayout(plot, {'annotations': [{
+        x: 0.01, y: 0.99, xref: 'paper', yref: 'paper',
+        xanchor: 'left', yanchor: 'top', align: 'left',
+        text: text, showarrow: false,
+        bgcolor: 'rgba(255,255,255,0.94)',
+        bordercolor: '#555', borderwidth: 1, borderpad: 8,
+        font: {size: 13}
+    }]});
+});
+"""
 
 
 if __name__ == "__main__":
