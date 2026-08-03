@@ -43,8 +43,8 @@ def main() -> None:
         height=args.height,
         dpi=args.dpi,
     )
-    print(f"Wrote {args.out_prefix.with_suffix('.png')}")
-    print(f"Wrote {args.out_prefix.with_suffix('.pdf')}")
+    print(f"Wrote {_append_extension(args.out_prefix, '.png')}")
+    print(f"Wrote {_append_extension(args.out_prefix, '.pdf')}")
     print(f"Wrote {coordinates_path}")
 
 
@@ -261,6 +261,10 @@ def _write_coordinates(path: Path, coordinates) -> None:
     coordinates.to_csv(path, sep="\t", index=False, float_format="%.8f")
 
 
+def _append_extension(prefix: Path, extension: str) -> Path:
+    return prefix.with_name(f"{prefix.name}{extension}")
+
+
 def _plot_mds(
     *,
     coordinates,
@@ -325,8 +329,8 @@ def _plot_mds(
     ax.set_aspect("equal", adjustable="box")
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_prefix.with_suffix(".png"), dpi=dpi)
-    fig.savefig(out_prefix.with_suffix(".pdf"))
+    fig.savefig(_append_extension(out_prefix, ".png"), dpi=dpi)
+    fig.savefig(_append_extension(out_prefix, ".pdf"))
     plt.close(fig)
 
 
