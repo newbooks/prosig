@@ -195,16 +195,8 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _load_go_terms(path: Path) -> dict[str, dict[str, Any]]:
-    fallback = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "prosig"
-        / "library"
-        / "default"
-        / "go_graph.pkl"
-    )
-    if not path.exists() and fallback.exists():
-        path = fallback
+    if not path.is_file():
+        raise SystemExit(f"GO graph file not found: {path}")
 
     with path.open("rb") as handle:
         artifact = pickle.load(handle)
