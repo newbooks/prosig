@@ -52,6 +52,19 @@ def test_unknown_motif_is_rejected(tmp_path) -> None:
         module._load_motif_weights(scoreboard, "MISSING")
 
 
+def test_load_motif_signature(tmp_path) -> None:
+    module = _load_script_module()
+    motifs = tmp_path / "prosig_motifs.tsv"
+    motifs.write_text(
+        "# ProSig motif library\n"
+        "name\tdescription\tprosig_pattern\tstatus\n"
+        "MOTIF_A\tExample\t[AG]?C\tprosig\n",
+        encoding="utf-8",
+    )
+
+    assert module._load_motif_signature(motifs, "MOTIF_A") == "[AG]?C"
+
+
 def test_summary_preserves_actual_weight_above_color_cap(tmp_path) -> None:
     module = _load_script_module()
     output = tmp_path / "summary.tsv"
@@ -79,17 +92,26 @@ def test_safe_output_filename_component() -> None:
     assert module._safe_filename_component("...") == "motif"
 
 
+def test_default_color_scale_is_plasma() -> None:
+    module = _load_script_module()
+
+    assert module.DEFAULT_COLOR_SCALE == "Plasma"
+
+
 def test_template_group_id_is_mapped_to_scoreboard_cluster_id() -> None:
     module = _load_script_module()
 
     assert module._raw_cluster_id("cluster:cluster_0008") == "cluster_0008"
 
 
-def test_click_script_pins_tile_details() -> None:
+def test_click_script_pins_details_inside_tile() -> None:
     module = _load_script_module()
 
     script = module._click_to_pin_script()
 
     assert "plotly_click" in script
     assert "Enrichment weight" in script
-    assert "Plotly.relayout" in script
+    assert "Signature: %{customdata[3]}" in script
+    assert "texttemplate" in script
+    assert "Plotly.restyle" in script
+    assert "annotations" not in script
