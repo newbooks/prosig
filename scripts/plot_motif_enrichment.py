@@ -26,6 +26,7 @@ from plot_function_label_treemap import (  # noqa: E402
 
 COLOR_MAX = 10.0
 COLOR_SCALES = ("Viridis", "Cividis", "Plasma", "Magma", "Inferno")
+DEFAULT_COLOR_SCALE = "Plasma"
 
 
 @dataclass(frozen=True)
@@ -71,9 +72,11 @@ def main() -> None:
     summary_tsv = args.summary_tsv or output.with_suffix(".tsv")
     _write_summary(summary_tsv, args.motif, enrichment_groups)
     if not args.summary_only:
+        signature = _load_motif_signature(args.motifs, args.motif)
         _write_treemap(
             output=output,
             motif=args.motif,
+            signature=signature,
             groups=enrichment_groups,
             title=args.title or f"Motif enrichment: {args.motif}",
             width=args.width,
@@ -103,6 +106,12 @@ def _parse_args() -> argparse.Namespace:
         default=Path("motif_cluster_scoreboard.pkl"),
     )
     parser.add_argument(
+        "--motifs",
+        type=Path,
+        default=Path("prosig_motifs.tsv"),
+        help="Motif library containing name and prosig_pattern columns.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Output HTML or static image path. Default includes the motif ID.",
@@ -130,9 +139,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--color-scale",
         choices=COLOR_SCALES,
-        default="Viridis",
+        default=DEFAULT_COLOR_SCALE,
         help=(
-            "Plotly continuous color scale. Viridis is the default; Cividis is "
+            "Plotly continuous color scale. Plasma is the default; Cividis is "
             "a color-vision-friendly alternative."
         ),
     )
@@ -168,6 +177,28 @@ def _load_motif_weights(path: Path, motif: str) -> dict[str, float]:
             )
         weights[str(cluster_id)] = weight
     return weights
+
+
+def _load_motif_signature(path: Path, motif: str) -> str:
+    if not path.is_file():
+        raise SystemExit(f"Motif library not found: {path}")
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(
+            (line for line in handle if not line.lstrip().startswith("#")),
+            delimiter="\t",
+        )
+        required = {"name", "prosig_pattern"}
+        if not reader.fieldnames or not required.issubset(reader.fieldnames):
+            raise ValueError(
+                f"Expected motif library with name and prosig_pattern columns: {path}"
+            )
+        for row in reader:
+            if row["name"].strip() == motif:
+                signature = row["prosig_pattern"].strip()
+                if not signature:
+                    raise ValueError(f"Empty prosig_pattern for motif {motif} in {path}")
+                return signature
+    raise SystemExit(f"Motif not found in {path}: {motif}")
 
 
 def _safe_filename_component(value: str) -> str:
@@ -217,6 +248,7 @@ def _write_treemap(
     *,
     output: Path,
     motif: str,
+    signature: str,
     groups: list[EnrichmentGroup],
     title: str,
     width: int,
@@ -239,9 +271,9 @@ def _write_treemap(
     values = [sum(group.count for group in groups), *(group.count for group in groups)]
     colors = [0.0, *(min(group.weight, COLOR_MAX) for group in groups)]
     customdata = [
-        [motif, "", 0.0],
+        [motif, "", 0.0, signature],
         *(
-            [motif, group.hover_label, group.weight]
+            [motif, group.hover_label, group.weight, signature]
             for group in groups
         ),
     ]
@@ -299,7 +331,7 @@ def _write_treemap(
 
 
 def _click_to_pin_script() -> str:
-    """Return JavaScript that pins a clicked tile's hover details on the plot."""
+    """Return JavaScript that pins a clicked tile's details inside that tile."""
     return r"""
 const plot = document.getElementById('{plot_id}');
 plot.on('plotly_click', function(eventData) {
@@ -307,25 +339,18 @@ plot.on('plotly_click', function(eventData) {
     if (!point.customdata || !point.customdata[1]) {
         return;
     }
-    const escapeHtml = (value) => String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-    const details = point.customdata;
-    const text = '<b>' + escapeHtml(details[1]) + '</b>' +
-        '<br>Members: ' + Number(point.value).toLocaleString() +
-        '<br>Motif: ' + escapeHtml(details[0]) +
-        '<br>Enrichment weight: ' + Number(details[2]).toFixed(4);
-    Plotly.relayout(plot, {'annotations': [{
-        x: 0.01, y: 0.99, xref: 'paper', yref: 'paper',
-        xanchor: 'left', yanchor: 'top', align: 'left',
-        text: text, showarrow: false,
-        bgcolor: 'rgba(255,255,255,0.94)',
-        bordercolor: '#555', borderwidth: 1, borderpad: 8,
-        font: {size: 13}
-    }]});
+    const templates = plot.data[point.curveNumber].ids.map(() => '%{label}');
+    templates[point.pointNumber] =
+        '<b>%{customdata[1]}</b>' +
+        '<br>Members: %{value:,}' +
+        '<br>Motif: %{customdata[0]}' +
+        '<br>Signature: %{customdata[3]}' +
+        '<br>Enrichment weight: %{customdata[2]:.4f}';
+    Plotly.restyle(
+        plot,
+        {'texttemplate': [templates]},
+        [point.curveNumber]
+    );
 });
 """
 
