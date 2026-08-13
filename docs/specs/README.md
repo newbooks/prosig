@@ -15,6 +15,9 @@ Current specs:
 - `go_cluster_complete_linkage_refinement.md`: complete-linkage second-stage
   refinement that enforces a final all-pairs similarity floor within each
   Leiden community.
+- `standalone_go_accession_clustering.md`: standalone Swiss-Prot MF GO
+  clustering with strict within- and across-cluster thresholds, minimum
+  retained size, and complete orphan reporting.
 - `cluster_go_signatures.md`: cluster-level synthetic GO MF signatures produced
   from final clusters, accession MF GO annotations, and GO IC values.
 - `go_mf_natural_language_composer.md`: rule-based natural-language summaries
